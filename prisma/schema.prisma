@@ -1,0 +1,84 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Usuario {
+  id                  String               @id @default(uuid())
+  nombre              String
+  email               String               @unique
+  password            String
+  rol                 Rol                  @default(OPERARIO)
+  createdAt           DateTime             @default(now())
+  updateAt            DateTime             @updatedAt
+  configuracionGranja configuracionGranja?
+  registros           RegistroDiario[]
+
+  @@map("usuarios")
+}
+
+model configuracionGranja {
+  id             String   @id @default(uuid())
+  nombreGranja   String
+  numeroGallinas Int
+  createdAt      DateTime @default(now())
+  updateAt       DateTime @updatedAt
+  usuarioId      String   @unique
+  usuario        Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@map("configuracion_granja")
+}
+
+model Categoria {
+  id          String   @id @default(uuid())
+  nombre      String   @unique
+  descripcion String?
+  activa      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  gastos      Gasto[]
+
+  @@map("categorias")
+}
+
+model RegistroDiario {
+  id                  String   @id @default(uuid())
+  fecha               DateTime @db.Date
+  huevosProducidos    Int
+  huevosVendidos      Int
+  precioVentaUnitario Decimal  @db.Decimal(10, 2)
+  ingresoTotal        Decimal  @db.Decimal(10, 2)
+  observaciones       String?
+  createdAt           DateTime @default(now())
+  updateAt            DateTime @updatedAt
+  usuarioId           String
+  gastos              Gasto[]
+  usuario             Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@unique([usuarioId, fecha])
+  @@index([usuarioId, fecha])
+  @@map("registros_diarios")
+}
+
+model Gasto {
+  id          String         @id @default(uuid())
+  descripcion String
+  monto       Decimal        @db.Decimal(10, 2)
+  createdAt   DateTime       @default(now())
+  categoriaId String
+  registroId  String
+  categoria   Categoria      @relation(fields: [categoriaId], references: [id])
+  registro    RegistroDiario @relation(fields: [registroId], references: [id], onDelete: Cascade)
+
+  @@index([registroId])
+  @@map("gastos_diarios")
+}
+
+enum Rol {
+  ADMIN
+  OPERARIO
+}
