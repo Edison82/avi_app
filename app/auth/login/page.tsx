@@ -28,6 +28,8 @@ export default function LoginPage() {
     setIsLoading(true);
     setError(null);
 
+    console.log('Datos del Formulario', data);
+
     try {
       const result = await signIn('credentials', {
         email: data.email,
@@ -35,14 +37,21 @@ export default function LoginPage() {
         redirect: false
       });
 
+      console.log('Resultado de signIn:', result);
+
       if (result?.error) {
         setError('Credenciales inválidas. Verifica tu email y contraseña.');
-      } else {
+        console.error('Error de credenciales: ', result.error);
+      } else if (result?.ok) {
         router.push('/dashboard');
         router.refresh();
+      } else {
+        setError('Error desconocido al iniciar sesion');
       }
+
     } catch (err) {
       setError('Ocurrió un error al iniciar sesión. Intenta nuevamente.');
+      console.error('Ocurrio un error al iniciar sesión:', err)
     } finally {
       setIsLoading(false);
     }
@@ -96,7 +105,7 @@ export default function LoginPage() {
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-600">
               ¿No tienes cuenta?{' '}
-              <Link href="/registro" className="text-primary-600 hover:text-primary-700 font-medium">
+              <Link href="/auth/registro" className="text-primary-600 hover:text-blue-700 font-medium ">
                 Regístrate aquí
               </Link>
             </p>

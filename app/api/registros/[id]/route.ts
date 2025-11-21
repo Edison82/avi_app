@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { registroDiarioSchema } from '@/lib/validations/schemas';
 
@@ -10,7 +9,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session?.user) {
       return NextResponse.json(
@@ -60,7 +59,7 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session?.user) {
       return NextResponse.json(
@@ -74,10 +73,10 @@ export async function PUT(
       where: {
         id: params.id,
         usuarioId: session.user.id
-      }
+      },
     });
 
-    if (!registroExistente) {
+    if (!registroExistente) {                                             
       return NextResponse.json(
         { success: false, error: 'Registro no encontrado' },
         { status: 404 }
@@ -94,7 +93,7 @@ export async function PUT(
         { 
           success: false, 
           error: 'Datos inválidos',
-          details: validacion.error.issues
+          details: validacion.error.issues,
         },
         { status: 400 }
       );
@@ -161,7 +160,7 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session?.user) {
       return NextResponse.json(
@@ -192,7 +191,7 @@ export async function DELETE(
 
     return NextResponse.json({
       success: true,
-      message: 'Registro eliminado exitosamente'
+      message: 'Registro eliminado exitosamente',
     });
 
   } catch (error) {

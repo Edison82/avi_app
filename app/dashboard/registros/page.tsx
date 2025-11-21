@@ -54,8 +54,10 @@ export default function RegistrosPage() {
     };
     fetchRegistros();
   }, [pagina, fechaDesde, fechaHasta]);
-  
-  
+
+  const handleBuscarRegistros = () => {
+    setPagina(1);
+  }
 
   const handleDelete = async (id: string, fecha: string) => {
     if (!confirm(`¿Estás seguro de eliminar el registro del ${fecha}?`)) {
@@ -71,7 +73,7 @@ export default function RegistrosPage() {
 
       if (data.success) {
         setSuccess('Registro eliminado exitosamente');
-        fetchRegistros();
+        handleBuscarRegistros();
         setTimeout(() => setSuccess(null), 3000);
       } else {
         setError(data.error);
@@ -141,7 +143,7 @@ export default function RegistrosPage() {
             onChange={(e) => setFechaHasta(e.target.value)}
           />
           <div className="flex items-end space-x-2">
-            <Button onClick={fetchRegistros} className="flex-1">
+            <Button onClick={handleBuscarRegistros} className="flex-1">
               <Search size={16} className="mr-2" />
               Buscar
             </Button>

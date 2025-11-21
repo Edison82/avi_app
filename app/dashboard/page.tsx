@@ -39,6 +39,7 @@ export default function DashboardPage() {
       }
     } catch (err) {
       setError('Error al cargar indicadores');
+      console.error('Error al cargar indicadores', err);
     } finally {
       setLoading(false);
     }

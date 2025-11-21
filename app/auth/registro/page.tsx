@@ -49,6 +49,8 @@ export default function RegistroPage() {
 
     } catch (err) {
       setError('Error al conectar con el servidor');
+      console.error('Error al conectar con el servidor', err);
+      
     } finally {
       setIsLoading(false);
     }
@@ -130,7 +132,7 @@ export default function RegistroPage() {
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-600">
               ¿Ya tienes cuenta?{' '}
-              <Link href="/login" className="text-primary-600 hover:text-primary-700 font-medium">
+              <Link href="/auth/login" className="text-primary-600 hover:text-blue-700 font-medium">
                 Inicia sesión aquí
               </Link>
             </p>

@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { registroDiarioSchema } from '@/lib/validations/schemas';
+import type { Prisma } from "@prisma/client";
+import { registroDiarioSchema, GastoInput } from '@/lib/validations/schemas';
 
 // GET - Obtener registros del usuario autenticado
 export async function GET(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session?.user) {
       return NextResponse.json(
@@ -17,20 +17,26 @@ export async function GET(request: Request) {
     }
 
     const { searchParams } = new URL(request.url);
-    const limite = parseInt(searchParams.get('limite') || '10');
-    const pagina = parseInt(searchParams.get('pagina') || '1');
-    const fechaDesde = searchParams.get('fechaDesde');
-    const fechaHasta = searchParams.get('fechaHasta');
+    const limite = Math.max(1, parseInt(searchParams.get("limite") || "10"));
+    const pagina = Math.max(1, parseInt(searchParams.get("pagina") || "1"));
+    const fechaDesde = searchParams.get("fechaDesde");
+    const fechaHasta = searchParams.get("fechaHasta");
 
     // Construir filtros
-    const where: any = {
-      usuarioId: session.user.id
+    const where: Prisma.RegistroDiarioWhereInput = {
+      usuarioId: session.user.id,
     };
 
     if (fechaDesde || fechaHasta) {
       where.fecha = {};
-      if (fechaDesde) where.fecha.gte = new Date(fechaDesde);
-      if (fechaHasta) where.fecha.lte = new Date(fechaHasta);
+      if (fechaDesde) {
+        // start of day
+        where.fecha.gte = new Date(`${fechaDesde}T00:00:00`);
+      }
+      if (fechaHasta) {
+        // end of day
+        where.fecha.lte = new Date(`${fechaHasta}T23:59:59.999`);
+      }
     }
 
     // Obtener registros con paginación
@@ -60,9 +66,11 @@ export async function GET(request: Request) {
         total,
         pagina,
         limite,
-        totalPaginas: Math.ceil(total / limite)
+        totalPaginas: Math.ceil(total / limite) || 1,
       }
-    });
+    },
+    { status: 200 }
+  );
 
   } catch (error) {
     console.error('Error al obtener registros:', error);
@@ -76,7 +84,7 @@ export async function GET(request: Request) {
 // POST - Crear nuevo registro diario
 export async function POST(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     
     if (!session?.user) {
       return NextResponse.json(
@@ -103,14 +111,17 @@ export async function POST(request: Request) {
 
     const { fecha, huevosProducidos, huevosVendidos, precioVentaUnitario, observaciones, gastos } = validacion.data;
 
+    // Normalizar fecha (evitar offsets de zona horaria)
+    const fechaObj = new Date(`${fecha}T00:00:00`);
+
     // Verificar si ya existe un registro para esta fecha
     const registroExistente = await prisma.registroDiario.findUnique({
       where: {
         usuarioId_fecha: {
           usuarioId: session.user.id,
-          fecha: new Date(fecha)
-        }
-      }
+          fecha: fechaObj,
+        },
+      },
     });
 
     if (registroExistente) {
@@ -126,7 +137,7 @@ export async function POST(request: Request) {
     // Crear registro con gastos
     const nuevoRegistro = await prisma.registroDiario.create({
       data: {
-        fecha: new Date(fecha),
+        fecha: fechaObj,
         huevosProducidos,
         huevosVendidos,
         precioVentaUnitario,
@@ -134,11 +145,11 @@ export async function POST(request: Request) {
         observaciones,
         usuarioId: session.user.id,
         gastos: {
-          create: gastos.map(gasto => ({
-            descripcion: gasto.descripcion,
-            monto: gasto.monto,
-            categoriaId: gasto.categoriaId
-          }))
+          create: (gastos ?? []).map((g: GastoInput) => ({
+            descripcion: g.descripcion,
+            monto: g.monto,
+            categoriaId: g.categoriaId,
+          })),
         }
       },
       include: {

@@ -25,7 +25,7 @@ export default function DashboardLayout({
 
   useEffect(() => {
     if (status === 'unauthenticated') {
-      router.push('/login');
+      router.push('/auth/login');
     }
   }, [status, router]);
 
@@ -46,7 +46,7 @@ export default function DashboardLayout({
 
   const handleLogout = async () => {
     await signOut({ redirect: false });
-    router.push('/login');
+    router.push('/auth/login');
   };
 
   return (

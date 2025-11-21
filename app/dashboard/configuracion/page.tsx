@@ -11,12 +11,6 @@ import { Input } from '@/components/ui/Input';
 import { Alert } from '@/components/ui/Alert';
 import { User, Building2 } from 'lucide-react';
 
-interface ConfiguracionGranja {
-  id: string;
-  nombreGranja: string;
-  numeroGallinas: number;
-}
-
 export default function ConfiguracionPage() {
   const { data: session } = useSession();
   const [loading, setLoading] = useState(true);
@@ -35,28 +29,28 @@ export default function ConfiguracionPage() {
   });
 
   useEffect(() => {
-    fetchConfiguracion();
-  }, []);
-
-  const fetchConfiguracion = async () => {
-    setLoading(true);
-    try {
-      const response = await fetch('/api/configuracion');
-      const data = await response.json();
-
-      if (data.success && data.data) {
-        setHasConfig(true);
-        reset({
-          nombreGranja: data.data.nombreGranja,
-          numeroGallinas: data.data.numeroGallinas
-        });
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const response = await fetch('/api/configuracion');
+        const data = await response.json();
+  
+        if (data.success && data.data) {
+          setHasConfig(true);
+          reset({
+            nombreGranja: data.data.nombreGranja,
+            numeroGallinas: data.data.numeroGallinas
+          });
+        }
+      } catch (err) {
+        console.error('Error al cargar configuración:', err);
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      console.error('Error al cargar configuración:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
+  
+    fetchData();
+  }, [reset]);
 
   const onSubmit = async (data: ConfiguracionGranjaInput) => {
     setSaving(true);

@@ -3,8 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm, useFieldArray } from 'react-hook-form';
+import type { Resolver, SubmitHandler } from "react-hook-form";
 import { zodResolver } from '@hookform/resolvers/zod';
-import { registroDiarioSchema, registroDiarioInput } from '@/lib/validations/schemas';
+import { registroDiarioSchema, RegistroDiarioInput } from '@/lib/validations/schemas';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -15,6 +16,9 @@ interface Categoria {
   id: string;
   nombre: string;
 }
+
+// fuerza al resolver a tener la forma que RHF espera
+const resolver = zodResolver(registroDiarioSchema) as Resolver<RegistroDiarioInput>;
 
 export default function NuevoRegistroPage() {
   const router = useRouter();
@@ -29,8 +33,8 @@ export default function NuevoRegistroPage() {
     handleSubmit,
     watch,
     formState: { errors }
-  } = useForm<registroDiarioInput>({
-    resolver: zodResolver(registroDiarioSchema),
+  } = useForm<RegistroDiarioInput>({
+    resolver,
     defaultValues: {
       fecha: new Date().toISOString().split('T')[0],
       gastos: []
@@ -58,7 +62,7 @@ export default function NuevoRegistroPage() {
     }
   };
 
-  const onSubmit = async (data: RegistroDiarioInput) => {
+  const onSubmit: SubmitHandler<RegistroDiarioInput> = async (data) => {
     setLoading(true);
     setError(null);
 
@@ -183,7 +187,7 @@ export default function NuevoRegistroPage() {
                     Categoría <span className="text-red-500">*</span>
                   </label>
                   <select
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-secondary-500"
                     {...register(`gastos.${index}.categoriaId`)}
                   >
                     <option value="">Seleccionar...</option>

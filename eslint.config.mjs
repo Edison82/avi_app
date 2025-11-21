@@ -6,6 +6,14 @@ const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   // Override default ignores of eslint-config-next.
+  {
+    files: ["app/api/**/*.ts"],
+    rules: {
+      "no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
+      "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_" }]
+    }
+  },
+
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
