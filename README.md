@@ -1,4 +1,4 @@
-# [README.md](http://README.md)  (documentacion)
+
 
 # 🐔 AviControl - Sistema de Gestión Avícola
 
