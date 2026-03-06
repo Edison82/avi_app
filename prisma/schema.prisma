@@ -1,6 +1,5 @@
 generator client {
   provider = "prisma-client-js"
-  output   = "../node_modules/.prisma/client"
 }
 
 datasource db {
@@ -13,58 +12,97 @@ model Usuario {
   nombre              String
   email               String               @unique
   password            String
-  rol                 Rol                  @default(OPERARIO)
+  rol                 Rol                  @default(ADMIN)
+  activo              Boolean              @default(true)
   createdAt           DateTime             @default(now())
-  updateAt            DateTime             @updatedAt
-  configuracionGranja configuracionGranja?
-  registros           RegistroDiario[]
+  updatedAt           DateTime             @updatedAt
+  configuracion       ConfiguracionGranja?
+
+  // Admin: Granja que administra
+  granja              Granja?              @relation("GranjaAdmin")
+
+  // Admin que los creó
+  creadoPorId       String?
+  creadoPor         Usuario?                @relation("UsuariosCreados", fields: [creadoPorId], references: [id])
+  usuariosCreados   Usuario[]               @relation("UsuariosCreados")
+
+  registros       RegistroDiario[]
+  entregas        EntregaConductor[]
+  granjas         UsuarioGranja[]
 
   @@map("usuarios")
 }
 
-model configuracionGranja {
-  id             String   @id @default(uuid())
-  nombreGranja   String
-  numeroGallinas Int
-  createdAt      DateTime @default(now())
-  updateAt       DateTime @updatedAt
-  usuarioId      String   @unique
-  usuario        Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+model Granja {
+  id             String    @id @default(uuid())
+  nombre         String
+  slug           String    @unique
+  numeroAves     Int
+  fechaIngreso   DateTime  @db.Date
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Admin dueño
+  adminId        String    @unique
+  admin          Usuario   @relation("GranjaAdmin", fields: [adminId], references: [id], onDelete: Cascade)
+
+  registros      RegistroDiario[]
+  entregas       EntregaConductor[]
+  categorias     Categoria[]
+  usuarios       UsuarioGranja[]
+
+  @@map("granjas")
+}
+
+model Categoria {
+  id          String    @id @default(uuid())
+  nombre      String
+  descripcion String?
+  activa      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  granjaId    String
+  granja      Granja    @relation(fields: [granjaId], references: [id], onDelete: Cascade)
+  gastos      GastoDiario[]
+
+  @@unique([granjaId, nombre])
+  @@map("categorias")
+}
+
+model ConfiguracionGranja {
+  id                String      @id @default(uuid())
+  nombreGranja      String
+  numeroGallinas    Int
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  usuarioId         String      @unique
+  usuario           Usuario     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 
   @@map("configuracion_granja")
 }
 
-model Categoria {
-  id          String   @id @default(uuid())
-  nombre      String   @unique
-  descripcion String?
-  activa      Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  gastos      Gasto[]
-
-  @@map("categorias")
-}
-
 model RegistroDiario {
-  id                  String   @id @default(uuid())
-  fecha               DateTime @db.Date
+  id                  String        @id @default(uuid())
+  fecha               DateTime      @db.Date
   huevosProducidos    Int
   huevosVendidos      Int
-  precioVentaUnitario Decimal  @db.Decimal(10, 2)
-  ingresoTotal        Decimal  @db.Decimal(10, 2)
+  precioVentaUnitario Decimal       @db.Decimal(10, 2)
+  ingresoTotal        Decimal       @db.Decimal(10, 2)
   observaciones       String?
-  createdAt           DateTime @default(now())
-  updateAt            DateTime @updatedAt
-  usuarioId           String
-  gastos              Gasto[]
-  usuario             Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  createdAt           DateTime      @default(now())
+  updatedAt            DateTime     @updatedAt
+  
+  granjaId    String
+  granja      Granja   @relation(fields: [granjaId], references: [id], onDelete: Cascade)
+  usuarioId   String
+  usuario     Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  gastos      GastoDiario[]
 
-  @@unique([usuarioId, fecha])
-  @@index([usuarioId, fecha])
+  @@unique([granjaId, fecha])
+  @@index([granjaId, fecha])
   @@map("registros_diarios")
 }
 
-model Gasto {
+model GastoDiario {
   id          String         @id @default(uuid())
   descripcion String
   monto       Decimal        @db.Decimal(10, 2)
@@ -78,7 +116,42 @@ model Gasto {
   @@map("gastos_diarios")
 }
 
+model EntregaConductor {
+  id                  String    @id @default(uuid())
+  fecha               DateTime  @db.Date
+  huevosEntregados    Int
+  precioVentaUnitario Decimal   @db.Decimal(10, 2)
+  ingresoTotal        Decimal   @db.Decimal(10, 2)
+  clienteNombre       String?
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  granjaId    String
+  granja      Granja   @relation(fields: [granjaId], references: [id], onDelete: Cascade)
+  conductorId String
+  conductor   Usuario  @relation(fields: [conductorId], references: [id], onDelete: Cascade)
+
+  @@index([granjaId, fecha])
+  @@map("entregas_conductor")
+}
+
+
+
+model UsuarioGranja {
+  id        String   @id @default(uuid())
+  usuarioId String
+  granjaId  String
+  createdAt DateTime @default(now())
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  granja    Granja   @relation(fields: [granjaId], references: [id], onDelete: Cascade)
+
+  @@unique([usuarioId, granjaId])
+  @@map("usuarios_granjas")
+}
+
 enum Rol {
   ADMIN
   OPERARIO
+  CONDUCTOR
 }

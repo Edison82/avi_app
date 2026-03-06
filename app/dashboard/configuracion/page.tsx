@@ -1,200 +1,150 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
 import { useForm } from 'react-hook-form';
+import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { configuracionGranjaSchema, ConfiguracionGranjaInput } from '@/lib/validations/schemas';
-import { Card } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Alert } from '@/components/ui/Alert';
-import { User, Building2 } from 'lucide-react';
+import { Users, UserPlus} from 'lucide-react';
+
+const schema = z.object({
+  nombre: z.string().min(3, 'Mínimo 3 caracteres'),
+  identificador: z.string().min(2).regex(/^[a-z0-9]+$/, 'Solo letras minúsculas y números'),
+  password: z.string().min(6, 'Mínimo 6 caracteres'),
+  rol: z.enum(['OPERARIO', 'CONDUCTOR']),
+});
+type FormData = z.infer<typeof schema>;
+
+interface Usuario {
+  id: string; nombre: string; email: string; rol: string; activo: boolean; createdAt: string;
+}
 
 export default function ConfiguracionPage() {
-  const { data: session } = useSession();
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-  const [hasConfig, setHasConfig] = useState(false);
+  const [exito, setExito] = useState<{ email: string; password: string } | null>(null);
 
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors }
-  } = useForm<ConfiguracionGranjaInput>({
-    resolver: zodResolver(configuracionGranjaSchema)
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<FormData>({
+    resolver: zodResolver(schema),
+    defaultValues: { rol: 'OPERARIO' }
   });
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const response = await fetch('/api/configuracion');
-        const data = await response.json();
-  
-        if (data.success && data.data) {
-          setHasConfig(true);
-          reset({
-            nombreGranja: data.data.nombreGranja,
-            numeroGallinas: data.data.numeroGallinas
-          });
-        }
-      } catch (err) {
-        console.error('Error al cargar configuración:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-  
-    fetchData();
-  }, [reset]);
-
-  const onSubmit = async (data: ConfiguracionGranjaInput) => {
-    setSaving(true);
-    setError(null);
-
-    try {
-      const method = hasConfig ? 'PUT' : 'POST';
-      const response = await fetch('/api/configuracion', {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        setSuccess(result.message);
-        setHasConfig(true);
-        setTimeout(() => setSuccess(null), 3000);
-      } else {
-        setError(result.error);
-      }
-    } catch (err) {
-      setError('Error al guardar configuración');
-      console.log('Error al guardar configuracion: ', err);
-    } finally {
-      setSaving(false);
-    }
+  const cargarUsuarios = async () => {
+    const res = await fetch('/api/configuracion/usuarios');
+    const json = await res.json();
+    if (json.success) setUsuarios(json.data);
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Cargando configuración...</p>
-        </div>
-      </div>
-    );
-  }
+  useEffect(() => { cargarUsuarios(); }, []);
+
+  const onSubmit = async (data: FormData) => {
+    setIsLoading(true);
+    setError(null);
+    setExito(null);
+    try {
+      const res = await fetch('/api/configuracion/usuarios', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const json = await res.json();
+      if (!json.success) { setError(json.error); return; }
+      setExito(json.data.credenciales);
+      reset();
+      cargarUsuarios();
+    } catch { setError('Error al crear usuario'); }
+    finally { setIsLoading(false); }
+  };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Configuración</h1>
-        <p className="text-gray-600 mt-1">Gestiona tu perfil y configuración de la granja</p>
-      </div>
+    <div className="space-y-8">
+      <h1 className="text-2xl font-bold text-gray-900">Configuración</h1>
 
-      {/* Alerts */}
-      {success && <Alert type="success" message={success} onClose={() => setSuccess(null)} />}
-      {error && <Alert type="error" message={error} onClose={() => setError(null)} />}
-
-      {/* Información del Usuario */}
-      <Card title="Información de Usuario" className="flex items-start space-x-4">
-        <div className="bg-primary-100 p-4 rounded-full">
-          <User size={32} className="text-primary-600" />
+      {/* Crear usuario */}
+      <div className="bg-white rounded-xl shadow-sm border p-6">
+        <div className="flex items-center gap-3 mb-6">
+          <UserPlus className="text-amber-500" size={24} />
+          <h2 className="text-lg font-semibold text-gray-800">Crear Cuenta</h2>
         </div>
-        <div className="flex-1">
-          <h3 className="font-semibold text-gray-900">{session?.user?.name}</h3>
-          <p className="text-sm text-gray-600">{session?.user?.email}</p>
-          <span className="inline-block mt-2 px-3 py-1 text-xs font-medium bg-primary-100 text-primary-700 rounded-full">
-            {session?.user?.rol}
-          </span>
-        </div>
-      </Card>
 
-      {/* Configuración de Granja */}
-      <Card>
-        <div className="flex items-center space-x-3 mb-6">
-          <div className="bg-green-100 p-3 rounded-full">
-            <Building2 size={24} className="text-green-600" />
+        {error && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
+
+        {exito && (
+          <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <p className="text-green-800 font-medium text-sm mb-2">✅ Cuenta creada. Comparte estas credenciales:</p>
+            <p className="text-sm text-gray-700">Email: <span className="font-mono font-semibold">{exito.email}</span></p>
+            <p className="text-sm text-gray-700">Contraseña: <span className="font-mono font-semibold">{exito.password}</span></p>
           </div>
+        )}
+
+        <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <h2 className="text-xl font-bold text-gray-900">Configuración de Granja</h2>
-            <p className="text-sm text-gray-600">Datos básicos de tu operación avícola</p>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Nombre completo</label>
+            <input {...register('nombre')} placeholder="Juan Pérez"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            {errors.nombre && <p className="text-red-500 text-xs mt-1">{errors.nombre.message}</p>}
           </div>
-        </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-          <Input
-            label="Nombre de la Granja"
-            type="text"
-            placeholder="Ej: Granja Los Huevos de Oro"
-            error={errors.nombreGranja?.message}
-            {...register('nombreGranja')}
-          />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Identificador</label>
+            <input {...register('identificador')} placeholder="juan01"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            <p className="text-xs text-gray-400 mt-1">Solo letras minúsculas y números</p>
+            {errors.identificador && <p className="text-red-500 text-xs mt-1">{errors.identificador.message}</p>}
+          </div>
 
-          <Input
-            label="Número de Gallinas"
-            type="number"
-            placeholder="500"
-            helperText="Cantidad total de gallinas ponedoras en tu granja"
-            error={errors.numeroGallinas?.message}
-            {...register('numeroGallinas', { valueAsNumber: true })}
-          />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Contraseña</label>
+            <input {...register('password')} type="password" placeholder="••••••"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>}
+          </div>
 
-          <div className="flex justify-end">
-            <Button type="submit" isLoading={saving}>
-              {hasConfig ? 'Actualizar Configuración' : 'Guardar Configuración'}
-            </Button>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de cuenta</label>
+            <select {...register('rol')}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500">
+              <option value="OPERARIO">🐓 Operario de Granja</option>
+              <option value="CONDUCTOR">🚚 Conductor / Repartidor</option>
+            </select>
+          </div>
+
+          <div className="md:col-span-2">
+            <button type="submit" disabled={isLoading}
+              className="bg-amber-500 hover:bg-amber-600 text-white font-semibold px-6 py-2.5 rounded-lg transition-colors disabled:opacity-50">
+              {isLoading ? 'Creando...' : 'Crear cuenta'}
+            </button>
           </div>
         </form>
-      </Card>
+      </div>
 
-      {/* Información Adicional */}
-      <Card title="Información del Sistema">
-        <div className="space-y-3 text-sm">
-          <div className="flex justify-between">
-            <span className="text-gray-600">Versión:</span>
-            <span className="font-medium text-gray-900">1.0.0</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-600">Último acceso:</span>
-            <span className="font-medium text-gray-900">
-              {new Date().toLocaleDateString('es-CO', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-              })}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-600">Estado del sistema:</span>
-            <span className="inline-flex items-center">
-              <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
-              <span className="font-medium text-green-600">Operativo</span>
-            </span>
-          </div>
+      {/* Lista de usuarios */}
+      <div className="bg-white rounded-xl shadow-sm border p-6">
+        <div className="flex items-center gap-3 mb-6">
+          <Users className="text-amber-500" size={24} />
+          <h2 className="text-lg font-semibold text-gray-800">Usuarios de la Granja</h2>
         </div>
-      </Card>
 
-      {/* Ayuda */}
-      <Card>
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <h3 className="font-semibold text-blue-900 mb-2">💡 ¿Necesitas ayuda?</h3>
-          <p className="text-sm text-blue-800">
-            Si tienes dudas sobre el uso del sistema o necesitas asistencia técnica, 
-            contacta al administrador del sistema.
-          </p>
-        </div>
-      </Card>
+        {usuarios.length === 0 ? (
+          <p className="text-gray-500 text-sm">Aún no has creado cuentas para tu granja.</p>
+        ) : (
+          <div className="space-y-3">
+            {usuarios.map(u => (
+              <div key={u.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div>
+                  <p className="font-medium text-gray-900 text-sm">{u.nombre}</p>
+                  <p className="text-xs text-gray-500 font-mono">{u.email}</p>
+                </div>
+                <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                  u.rol === 'OPERARIO' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'
+                }`}>
+                  {u.rol === 'OPERARIO' ? '🐓 Operario' : '🚚 Conductor'}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

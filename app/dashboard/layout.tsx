@@ -1,17 +1,12 @@
 'use client';
 
+import { useMemo } from 'react';
+import { Truck } from 'lucide-react';
 import { signOut, useSession } from 'next-auth/react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { Home, FileText, FolderOpen, Settings, LogOut, Menu, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
-
-const menuItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: Home },
-  { href: '/dashboard/registros', label: 'Registros', icon: FileText },
-  { href: '/dashboard/categorias', label: 'Categorías', icon: FolderOpen },
-  { href: '/dashboard/configuracion', label: 'Configuración', icon: Settings },
-];
 
 export default function DashboardLayout({
   children,
@@ -22,6 +17,27 @@ export default function DashboardLayout({
   const router = useRouter();
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const menuItems = useMemo(() => {
+    const rol = session?.user?.rol;
+    if (rol === 'OPERARIO') {
+      return [
+        { href: '/dashboard/registros', label: 'Registros', icon: FileText },
+      ];
+    }
+    if (rol === 'CONDUCTOR') {
+      return [
+        { href: '/dashboard/entregas', label: 'Mis Entregas', icon: Truck },
+      ];
+    }
+    // ADMIN
+    return [
+      { href: '/dashboard', label: 'Dashboard', icon: Home },
+      { href: '/dashboard/registros', label: 'Registros', icon: FileText },
+      { href: '/dashboard/categorias', label: 'Categorías', icon: FolderOpen },
+      { href: '/dashboard/configuracion', label: 'Configuración', icon: Settings },
+    ];
+  }, [session?.user?.rol]);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -72,7 +88,7 @@ export default function DashboardLayout({
       >
         {/* Logo */}
         <div className="p-6 border-b">
-          <h1 className="text-2xl font-bold text-primary-600">🐔 AviControl</h1>
+          <h1 className="text-2xl font-bold text-gray-600">🐔 AviControl</h1>
           <p className="text-sm text-gray-600 mt-1">Gestión Avícola</p>
         </div>
 
@@ -99,7 +115,7 @@ export default function DashboardLayout({
                 className={`
                   flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors
                   ${isActive 
-                    ? 'bg-primary-100 text-primary-700 font-medium' 
+                    ? 'bg-amber-100 text-primary-700 font-medium' 
                     : 'text-gray-700 hover:bg-gray-100'
                   }
                 `}

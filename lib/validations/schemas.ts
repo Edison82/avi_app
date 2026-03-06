@@ -29,7 +29,7 @@ export const loginSchema = z.object({
 // Schema de Configuracion de Granja
 export const configuracionGranjaSchema = z.object({
     nombreGranja:z.string().min(3, 'El nombre debe tener al menos 3 caracteres'),
-    numeroGallinas: z.number().int().min(1, 'Debe tener al menos una Gallina')
+    numeroGallinas:z.number().int().min(1, 'Debe tener al menos una Ave')
 });
 
 // Schema de Categoria
@@ -68,6 +68,20 @@ export const registroDiarioSchema = z
     path: ["huevosVendidos"],
   });
 
+  // Schema de Granja
+export const granjaSchema = z.object({
+  nombre: z.string().min(3, 'El nombre debe tener al menos 3 caracteres'),
+  numeroAves: z.number().int().min(1, 'Debe tener al menos una Ave'),
+  fechaIngreso: z.string().refine((date) => {
+    const selected = new Date(`${date}T00:00:00`);
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    return selected <= today;
+  }),
+  ubicacion: z.string().optional(),
+});
+
+
 // Tipos TypeScript inferidos
 export type RegistroUsuarioInput = z.infer<typeof registroUsuarioSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
@@ -75,3 +89,4 @@ export type ConfiguracionGranjaInput = z.infer<typeof configuracionGranjaSchema>
 export type CategoriaInput = z.infer<typeof categoriaSchema>;
 export type GastoInput = z.infer<typeof gastoSchema>;
 export type RegistroDiarioInput = z.infer<typeof registroDiarioSchema>;
+export type GranjaInput = z.infer<typeof granjaSchema>;
