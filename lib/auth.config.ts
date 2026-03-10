@@ -1,5 +1,5 @@
 import Credentials from "next-auth/providers/credentials";
-import { PrismaAdapter } from "@auth/prisma-adapter"
+import { PrismaAdapter } from "@auth/prisma-adapter";
 import type { NextAuthConfig } from "next-auth";
 import { compare } from "bcryptjs";
 import { prisma } from "./prisma";
@@ -12,7 +12,6 @@ type CustomUser = AdapterUser & {
 };
 
 export const authConfig: NextAuthConfig = {
-  //Agrega adapter
   adapter: PrismaAdapter(prisma) as Adapter,
   session: {
     strategy: "jwt",
@@ -21,7 +20,7 @@ export const authConfig: NextAuthConfig = {
   pages: {
     signIn: "/auth/login",
   },
-  
+
   providers: [
     Credentials({
       name: "Credentials",
@@ -32,9 +31,9 @@ export const authConfig: NextAuthConfig = {
       async authorize(credentials) {
         const email = credentials?.email as string | undefined;
         const password = credentials?.password as string | undefined;
-      
+
         if (!email || !password) return null;
-      
+
         const usuario = await prisma.usuario.findUnique({
           where: { email },
           select: {
@@ -45,21 +44,19 @@ export const authConfig: NextAuthConfig = {
             rol: true,
             granja: { select: { id: true } },
             granjas: {
-              select: { granjaId: true }
-            }
+              select: { granjaId: true },
+            },
           },
         });
-      
+
         if (!usuario?.password) return null;
-      
+
         const passwordValido = await compare(password, usuario.password);
         if (!passwordValido) return null;
-      
+
         const granjaId =
-          usuario.granja?.id ??
-          usuario.granjas?.[0]?.granjaId ??
-          null;
-      
+          usuario.granja?.id ?? usuario.granjas?.[0]?.granjaId ?? null;
+
         return {
           id: usuario.id,
           email: usuario.email,
@@ -72,8 +69,8 @@ export const authConfig: NextAuthConfig = {
     }),
   ],
   callbacks: {
-    
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
+      // Login inicial: setear datos del usuario
       if (user) {
         const u = user as CustomUser;
         token.id = u.id;
@@ -81,14 +78,25 @@ export const authConfig: NextAuthConfig = {
         token.granjaId = u.granjaId;
         token.setupCompleto = u.setupCompleto;
       }
+
+      // Cuando se llama update() desde el cliente (ej: después del setup)
+      if (trigger === "update" && session) {
+        if (session.setupCompleto !== undefined) {
+          token.setupCompleto = session.setupCompleto;
+        }
+        if (session.granjaId !== undefined) {
+          token.granjaId = session.granjaId;
+        }
+      }
+
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string;
         session.user.rol = token.rol as string;
-        session.user.granjaId = token.granjaId as string | null;
-        session.user.setupCompleto = token.setupCompleto as boolean;
+        session.user.granjaId = (token.granjaId as string) ?? null;
+        session.user.setupCompleto = (token.setupCompleto as boolean) ?? false;
       }
       return session;
     },

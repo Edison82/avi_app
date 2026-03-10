@@ -7,7 +7,7 @@ import { granjaSchema } from '@/lib/validations/schemas';
 export async function GET() {
   try {
     const session = await auth();
-    
+
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'No autenticado' },
@@ -18,39 +18,36 @@ export async function GET() {
     let granjas;
 
     if (session.user.rol === 'ADMIN') {
-      // Admin ve sus granjas creadas
       granjas = await prisma.granja.findMany({
         where: { adminId: session.user.id },
         include: {
           _count: {
-            select: { usuarios: true, registros: true }
-          }
+            select: { usuarios: true, registros: true },
+          },
         },
-        orderBy: { createdAt: 'desc' }
+        orderBy: { createdAt: 'desc' },
       });
     } else {
-      // Operario ve granjas asignadas
       const asignaciones = await prisma.usuarioGranja.findMany({
         where: { usuarioId: session.user.id },
         include: {
           granja: {
             include: {
               _count: {
-                select: { usuarios: true, registros: true }
-              }
-            }
-          }
-        }
+                select: { usuarios: true, registros: true },
+              },
+            },
+          },
+        },
       });
 
-      granjas = asignaciones.map(a => a.granja);
+      granjas = asignaciones.map((a) => a.granja);
     }
 
     return NextResponse.json({
       success: true,
-      data: granjas
+      data: granjas,
     });
-
   } catch (error) {
     console.error('Error al obtener granjas:', error);
     return NextResponse.json(
@@ -64,7 +61,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const session = await auth();
-    
+
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'No autenticado' },
@@ -80,43 +77,41 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-
-    // Validar datos
     const validacion = granjaSchema.safeParse(body);
-    
+
     if (!validacion.success) {
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           error: 'Datos inválidos',
-          details: validacion.error
+          details: validacion.error,
         },
         { status: 400 }
       );
     }
 
     const { nombre, numeroAves, fechaIngreso } = validacion.data;
-    const slug = nombre.toLowerCase().replace(/ /g, '-') + '-' + Date.now();
+    const slug =
+      nombre.toLowerCase().replace(/ /g, '-') + '-' + Date.now();
 
     const nuevaGranja = await prisma.granja.create({
       data: {
         nombre,
         slug,
         numeroAves,
-        fechaIngreso,
-        adminId: session.user.id
-      }
+        fechaIngreso: new Date(fechaIngreso),
+        adminId: session.user.id,
+      },
     });
 
     return NextResponse.json(
       {
         success: true,
         message: 'Granja creada exitosamente',
-        data: nuevaGranja
+        data: nuevaGranja,
       },
       { status: 201 }
     );
-
   } catch (error) {
     console.error('Error al crear granja:', error);
     return NextResponse.json(

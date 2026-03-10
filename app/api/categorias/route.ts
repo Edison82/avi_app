@@ -7,7 +7,7 @@ import { categoriaSchema } from '@/lib/validations/schemas';
 export async function GET(request: Request) {
   try {
     const session = await auth();
-    
+
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'No autenticado' },
@@ -17,21 +17,31 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const incluirInactivas = searchParams.get('incluirInactivas') === 'true';
+    const granjaId = session.user.granjaId;
 
-    const where = incluirInactivas ? {} : { activa: true };
+    if (!granjaId) {
+      return NextResponse.json({
+        success: true,
+        data: [],
+      });
+    }
+
+    const where: Record<string, unknown> = { granjaId };
+    if (!incluirInactivas) {
+      where.activa = true;
+    }
 
     const categorias = await prisma.categoria.findMany({
       where,
       orderBy: {
-        nombre: 'asc'
-      }
+        nombre: 'asc',
+      },
     });
 
     return NextResponse.json({
       success: true,
-      data: categorias
+      data: categorias,
     });
-
   } catch (error) {
     console.error('Error al obtener categorías:', error);
     return NextResponse.json(
@@ -45,7 +55,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const session = await auth();
-    
+
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'No autenticado' },
@@ -53,7 +63,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Verificar rol de administrador
     if (session.user.rol !== 'ADMIN') {
       return NextResponse.json(
         { success: false, error: 'No tienes permisos para crear categorías' },
@@ -61,17 +70,23 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = await request.json();
+    const granjaId = session.user.granjaId;
+    if (!granjaId) {
+      return NextResponse.json(
+        { success: false, error: 'No tienes una granja configurada' },
+        { status: 400 }
+      );
+    }
 
-    // Validar datos
+    const body = await request.json();
     const validacion = categoriaSchema.safeParse(body);
-    
+
     if (!validacion.success) {
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           error: 'Datos inválidos',
-          details: validacion.error.issues
+          details: validacion.error.issues,
         },
         { status: 400 }
       );
@@ -79,9 +94,14 @@ export async function POST(request: Request) {
 
     const { nombre, descripcion } = validacion.data;
 
-    // Verificar si ya existe una categoría con ese nombre
+    // Verificar si ya existe una categoría con ese nombre EN ESTA GRANJA
     const categoriaExistente = await prisma.categoria.findUnique({
-      where: { nombre }
+      where: {
+        granjaId_nombre: {
+          granjaId,
+          nombre,
+        },
+      },
     });
 
     if (categoriaExistente) {
@@ -94,19 +114,19 @@ export async function POST(request: Request) {
     const nuevaCategoria = await prisma.categoria.create({
       data: {
         nombre,
-        descripcion
-      }
+        descripcion,
+        granjaId,
+      },
     });
 
     return NextResponse.json(
       {
         success: true,
         message: 'Categoría creada exitosamente',
-        data: nuevaCategoria
+        data: nuevaCategoria,
       },
       { status: 201 }
     );
-
   } catch (error) {
     console.error('Error al crear categoría:', error);
     return NextResponse.json(

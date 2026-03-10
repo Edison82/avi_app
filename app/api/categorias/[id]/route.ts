@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { categoriaSchema } from '@/lib/validations/schemas';
 
@@ -10,8 +9,8 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await getServerSession(authOptions);
-    
+    const session = await auth();
+
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'No autenticado' },
@@ -27,7 +26,7 @@ export async function PUT(
     }
 
     const categoriaExistente = await prisma.categoria.findUnique({
-      where: { id: params.id }
+      where: { id: params.id },
     });
 
     if (!categoriaExistente) {
@@ -39,13 +38,13 @@ export async function PUT(
 
     const body = await request.json();
     const validacion = categoriaSchema.safeParse(body);
-    
+
     if (!validacion.success) {
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           error: 'Datos inválidos',
-          details: validacion.error.issues
+          details: validacion.error.issues,
         },
         { status: 400 }
       );
@@ -57,16 +56,15 @@ export async function PUT(
       where: { id: params.id },
       data: {
         nombre,
-        descripcion
-      }
+        descripcion,
+      },
     });
 
     return NextResponse.json({
       success: true,
       message: 'Categoría actualizada exitosamente',
-      data: categoriaActualizada
+      data: categoriaActualizada,
     });
-
   } catch (error) {
     console.error('Error al actualizar categoría:', error);
     return NextResponse.json(
@@ -82,8 +80,8 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await getServerSession(authOptions);
-    
+    const session = await auth();
+
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'No autenticado' },
@@ -99,7 +97,7 @@ export async function PATCH(
     }
 
     const categoriaExistente = await prisma.categoria.findUnique({
-      where: { id: params.id }
+      where: { id: params.id },
     });
 
     if (!categoriaExistente) {
@@ -121,15 +119,14 @@ export async function PATCH(
 
     const categoriaActualizada = await prisma.categoria.update({
       where: { id: params.id },
-      data: { activa }
+      data: { activa },
     });
 
     return NextResponse.json({
       success: true,
       message: `Categoría ${activa ? 'activada' : 'desactivada'} exitosamente`,
-      data: categoriaActualizada
+      data: categoriaActualizada,
     });
-
   } catch (error) {
     console.error('Error al cambiar estado de categoría:', error);
     return NextResponse.json(

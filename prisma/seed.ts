@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from '@prisma/client';
 import { hash } from 'bcryptjs';
 
 const prisma = new PrismaClient();
@@ -6,10 +6,49 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Iniciando seed de base de datos...');
 
-  // 1. Crear categorías predeterminadas
+  // 1. Crear usuario administrador de prueba
+  console.log('👤 Creando usuario administrador de prueba...');
+
+  const passwordHash = await hash('admin123', 12);
+
+  const adminUser = await prisma.usuario.upsert({
+    where: { email: 'admin@avicola.com' },
+    update: {},
+    create: {
+      nombre: 'Administrador',
+      email: 'admin@avicola.com',
+      password: passwordHash,
+      rol: 'ADMIN',
+    },
+  });
+
+  console.log('✅ Usuario admin creado:', adminUser.email);
+
+  // 2. Crear granja para el admin
+  console.log('🏠 Creando granja de ejemplo...');
+
+  let granja = await prisma.granja.findUnique({
+    where: { adminId: adminUser.id },
+  });
+
+  if (!granja) {
+    granja = await prisma.granja.create({
+      data: {
+        nombre: 'Granja Demo',
+        slug: 'granja-demo',
+        numeroAves: 500,
+        fechaIngreso: new Date('2024-01-15'),
+        adminId: adminUser.id,
+      },
+    });
+  }
+
+  console.log('✅ Granja creada:', granja.nombre);
+
+  // 3. Crear categorías predeterminadas (con granjaId)
   console.log('📁 Creando categorías...');
-  
-  const categorias = [
+
+  const categoriasData = [
     {
       nombre: 'Alimento',
       descripcion: 'Alimento concentrado para gallinas ponedoras',
@@ -36,41 +75,26 @@ async function main() {
     },
   ];
 
-  for (const categoria of categorias) {
+  for (const cat of categoriasData) {
     await prisma.categoria.upsert({
-      where: { nombre: categoria.nombre },
+      where: {
+        granjaId_nombre: {
+          granjaId: granja.id,
+          nombre: cat.nombre,
+        },
+      },
       update: {},
-      create: categoria,
+      create: {
+        nombre: cat.nombre,
+        descripcion: cat.descripcion,
+        granjaId: granja.id,
+      },
     });
   }
 
-  console.log(`✅ ${categorias.length} categorías creadas`);
+  console.log(`✅ ${categoriasData.length} categorías creadas`);
 
-  // 2. Crear usuario de prueba (ADMIN)
-  console.log('👤 Creando usuario administrador de prueba...');
-
-  const passwordHash = await hash('admin123', 12);
-
-  const adminUser = await prisma.usuario.upsert({
-    where: { email: 'admin@avicola.com' },
-    update: {},
-    create: {
-      nombre: 'Administrador',
-      email: 'admin@avicola.com',
-      password: passwordHash,
-      rol: 'ADMIN',
-      configuracionGranja: {
-        create: {
-          nombreGranja: 'Granja Demo',
-          numeroGallinas: 500,
-        },
-      },
-    },
-  });
-
-  console.log('✅ Usuario admin creado:', adminUser.email);
-
-  // 3. Crear usuario operario de prueba
+  // 4. Crear usuario operario de prueba
   console.log('👤 Creando usuario operario de prueba...');
 
   const passwordHashOperario = await hash('operario123', 12);
@@ -83,36 +107,59 @@ async function main() {
       email: 'operario@avicola.com',
       password: passwordHashOperario,
       rol: 'OPERARIO',
-      configuracionGranja: {
-        create: {
-          nombreGranja: 'Granja El Porvenir',
-          numeroGallinas: 200,
-        },
+      creadoPorId: adminUser.id,
+    },
+  });
+
+  // Asignar operario a la granja
+  await prisma.usuarioGranja.upsert({
+    where: {
+      usuarioId_granjaId: {
+        usuarioId: operarioUser.id,
+        granjaId: granja.id,
       },
+    },
+    update: {},
+    create: {
+      usuarioId: operarioUser.id,
+      granjaId: granja.id,
     },
   });
 
   console.log('✅ Usuario operario creado:', operarioUser.email);
 
-  // 4. Crear registros de ejemplo (últimos 7 días)
+  // 5. Crear registros de ejemplo (últimos 7 días)
   console.log('📊 Creando registros de ejemplo...');
 
+  const categoriaAlimento = await prisma.categoria.findFirst({
+    where: { nombre: 'Alimento', granjaId: granja.id },
+  });
+  const categoriaMedicinas = await prisma.categoria.findFirst({
+    where: { nombre: 'Medicinas', granjaId: granja.id },
+  });
+
   const hoy = new Date();
-  const categoriaAlimento = await prisma.categoria.findUnique({
-    where: { nombre: 'Alimento' },
-  });
-  const categoriaMedicinas = await prisma.categoria.findUnique({
-    where: { nombre: 'Medicinas' },
-  });
 
   for (let i = 6; i >= 0; i--) {
     const fecha = new Date(hoy);
     fecha.setDate(fecha.getDate() - i);
     fecha.setHours(0, 0, 0, 0);
 
-    const huevosProducidos = Math.floor(Math.random() * 50) + 400; // 400-450 huevos
-    const huevosVendidos = Math.floor(huevosProducidos * 0.95); // 95% vendidos
-    const precioVenta = 600; // $600 por huevo
+    // Verificar si ya existe un registro para esta fecha
+    const existente = await prisma.registroDiario.findUnique({
+      where: {
+        granjaId_fecha: {
+          granjaId: granja.id,
+          fecha,
+        },
+      },
+    });
+
+    if (existente) continue;
+
+    const huevosProducidos = Math.floor(Math.random() * 50) + 400;
+    const huevosVendidos = Math.floor(huevosProducidos * 0.95);
+    const precioVenta = 600;
     const ingresoTotal = huevosVendidos * precioVenta;
 
     await prisma.registroDiario.create({
@@ -123,6 +170,7 @@ async function main() {
         precioVentaUnitario: precioVenta,
         ingresoTotal,
         observaciones: i === 0 ? 'Registro del día actual' : undefined,
+        granjaId: granja.id,
         usuarioId: adminUser.id,
         gastos: {
           create: [

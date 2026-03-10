@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import type { Prisma } from "@prisma/client";
+import type { Prisma } from '@prisma/client';
 import { registroDiarioSchema, GastoInput } from '@/lib/validations/schemas';
 
 // GET - Obtener registros del usuario autenticado
 export async function GET(request: Request) {
   try {
     const session = await auth();
-    
+
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'No autenticado' },
@@ -16,25 +16,33 @@ export async function GET(request: Request) {
       );
     }
 
+    const granjaId = session.user.granjaId;
+    if (!granjaId) {
+      return NextResponse.json({
+        success: true,
+        data: [],
+        pagination: { total: 0, pagina: 1, limite: 10, totalPaginas: 1 },
+      });
+    }
+
     const { searchParams } = new URL(request.url);
-    const limite = Math.max(1, parseInt(searchParams.get("limite") || "10"));
-    const pagina = Math.max(1, parseInt(searchParams.get("pagina") || "1"));
-    const fechaDesde = searchParams.get("fechaDesde");
-    const fechaHasta = searchParams.get("fechaHasta");
+    const limite = Math.max(1, parseInt(searchParams.get('limite') || '10'));
+    const pagina = Math.max(1, parseInt(searchParams.get('pagina') || '1'));
+    const fechaDesde = searchParams.get('fechaDesde');
+    const fechaHasta = searchParams.get('fechaHasta');
 
     // Construir filtros
     const where: Prisma.RegistroDiarioWhereInput = {
+      granjaId,
       usuarioId: session.user.id,
     };
 
     if (fechaDesde || fechaHasta) {
       where.fecha = {};
       if (fechaDesde) {
-        // start of day
         where.fecha.gte = new Date(`${fechaDesde}T00:00:00`);
       }
       if (fechaHasta) {
-        // end of day
         where.fecha.lte = new Date(`${fechaHasta}T23:59:59.999`);
       }
     }
@@ -46,32 +54,32 @@ export async function GET(request: Request) {
         include: {
           gastos: {
             include: {
-              categoria: true
-            }
-          }
+              categoria: true,
+            },
+          },
         },
         orderBy: {
-          fecha: 'desc'
+          fecha: 'desc',
         },
         skip: (pagina - 1) * limite,
-        take: limite
+        take: limite,
       }),
-      prisma.registroDiario.count({ where })
+      prisma.registroDiario.count({ where }),
     ]);
 
-    return NextResponse.json({
-      success: true,
-      data: registros,
-      pagination: {
-        total,
-        pagina,
-        limite,
-        totalPaginas: Math.ceil(total / limite) || 1,
-      }
-    },
-    { status: 200 }
-  );
-
+    return NextResponse.json(
+      {
+        success: true,
+        data: registros,
+        pagination: {
+          total,
+          pagina,
+          limite,
+          totalPaginas: Math.ceil(total / limite) || 1,
+        },
+      },
+      { status: 200 }
+    );
   } catch (error) {
     console.error('Error al obtener registros:', error);
     return NextResponse.json(
@@ -85,7 +93,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const session = await auth();
-    
+
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'No autenticado' },
@@ -93,32 +101,47 @@ export async function POST(request: Request) {
       );
     }
 
+    const granjaId = session.user.granjaId;
+    if (!granjaId) {
+      return NextResponse.json(
+        { success: false, error: 'No tienes una granja configurada' },
+        { status: 400 }
+      );
+    }
+
     const body = await request.json();
 
     // Validar datos
     const validacion = registroDiarioSchema.safeParse(body);
-    
+
     if (!validacion.success) {
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           error: 'Datos inválidos',
-          details: validacion.error.issues 
+          details: validacion.error.issues,
         },
         { status: 400 }
       );
     }
 
-    const { fecha, huevosProducidos, huevosVendidos, precioVentaUnitario, observaciones, gastos } = validacion.data;
+    const {
+      fecha,
+      huevosProducidos,
+      huevosVendidos,
+      precioVentaUnitario,
+      observaciones,
+      gastos,
+    } = validacion.data;
 
-    // Normalizar fecha (evitar offsets de zona horaria)
+    // Normalizar fecha
     const fechaObj = new Date(`${fecha}T00:00:00`);
 
-    // Verificar si ya existe un registro para esta fecha
+    // Verificar si ya existe un registro para esta fecha EN ESTA GRANJA
     const registroExistente = await prisma.registroDiario.findUnique({
       where: {
-        usuarioId_fecha: {
-          usuarioId: session.user.id,
+        granjaId_fecha: {
+          granjaId,
           fecha: fechaObj,
         },
       },
@@ -143,6 +166,7 @@ export async function POST(request: Request) {
         precioVentaUnitario,
         ingresoTotal,
         observaciones,
+        granjaId,
         usuarioId: session.user.id,
         gastos: {
           create: (gastos ?? []).map((g: GastoInput) => ({
@@ -150,26 +174,25 @@ export async function POST(request: Request) {
             monto: g.monto,
             categoriaId: g.categoriaId,
           })),
-        }
+        },
       },
       include: {
         gastos: {
           include: {
-            categoria: true
-          }
-        }
-      }
+            categoria: true,
+          },
+        },
+      },
     });
 
     return NextResponse.json(
       {
         success: true,
         message: 'Registro creado exitosamente',
-        data: nuevoRegistro
+        data: nuevoRegistro,
       },
       { status: 201 }
     );
-
   } catch (error) {
     console.error('Error al crear registro:', error);
     return NextResponse.json(

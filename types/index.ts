@@ -8,17 +8,14 @@ export type RegistroDiarioConRelaciones = Prisma.RegistroDiarioGetPayload<{
         categoria: true;
       };
     };
-    usuario: {
-      select: {
-        nombre: true;
-        email: true;
-      };
-    };
   };
 }>;
 
 // Tipo de Usuario sin password
-export type UsuarioSinPassword = Omit<Prisma.UsuarioGetPayload<{}>, 'password'>;
+export type UsuarioSinPassword = Omit<
+  Prisma.UsuarioGetPayload<{}>,
+  'password'
+>;
 
 // Tipo para indicadores del dashboard
 export interface IndicadoresDiarios {
@@ -39,7 +36,7 @@ export interface IndicadoresSemanales {
 }
 
 // Tipos para respuestas de API
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
@@ -47,7 +44,7 @@ export interface ApiResponse<T = any> {
 }
 
 // Tipos para gastos con categoría
-export type GastoConCategoria = Prisma.GastoGetPayload<{
+export type GastoConCategoria = Prisma.GastoDiarioGetPayload<{
   include: {
     categoria: true;
   };

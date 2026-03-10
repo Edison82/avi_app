@@ -10,7 +10,7 @@ export async function GET(
 ) {
   try {
     const session = await auth();
-    
+
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'No autenticado' },
@@ -21,15 +21,15 @@ export async function GET(
     const registro = await prisma.registroDiario.findFirst({
       where: {
         id: params.id,
-        usuarioId: session.user.id
+        usuarioId: session.user.id,
       },
       include: {
         gastos: {
           include: {
-            categoria: true
-          }
-        }
-      }
+            categoria: true,
+          },
+        },
+      },
     });
 
     if (!registro) {
@@ -41,9 +41,8 @@ export async function GET(
 
     return NextResponse.json({
       success: true,
-      data: registro
+      data: registro,
     });
-
   } catch (error) {
     console.error('Error al obtener registro:', error);
     return NextResponse.json(
@@ -60,7 +59,7 @@ export async function PUT(
 ) {
   try {
     const session = await auth();
-    
+
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'No autenticado' },
@@ -68,15 +67,14 @@ export async function PUT(
       );
     }
 
-    // Verificar que el registro existe y pertenece al usuario
     const registroExistente = await prisma.registroDiario.findFirst({
       where: {
         id: params.id,
-        usuarioId: session.user.id
+        usuarioId: session.user.id,
       },
     });
 
-    if (!registroExistente) {                                             
+    if (!registroExistente) {
       return NextResponse.json(
         { success: false, error: 'Registro no encontrado' },
         { status: 404 }
@@ -84,14 +82,12 @@ export async function PUT(
     }
 
     const body = await request.json();
-
-    // Validar datos
     const validacion = registroDiarioSchema.safeParse(body);
-    
+
     if (!validacion.success) {
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           error: 'Datos inválidos',
           details: validacion.error.issues,
         },
@@ -99,19 +95,22 @@ export async function PUT(
       );
     }
 
-    const { fecha, huevosProducidos, huevosVendidos, precioVentaUnitario, observaciones, gastos } = validacion.data;
+    const {
+      fecha,
+      huevosProducidos,
+      huevosVendidos,
+      precioVentaUnitario,
+      observaciones,
+      gastos,
+    } = validacion.data;
 
-    // Calcular ingreso total
     const ingresoTotal = huevosVendidos * precioVentaUnitario;
 
-    // Actualizar registro (eliminar gastos antiguos y crear nuevos)
     const registroActualizado = await prisma.$transaction(async (tx) => {
-      // Eliminar gastos antiguos
-      await tx.gasto.deleteMany({
-        where: { registroId: params.id }
+      await tx.gastoDiario.deleteMany({
+        where: { registroId: params.id },
       });
 
-      // Actualizar registro con nuevos gastos
       return tx.registroDiario.update({
         where: { id: params.id },
         data: {
@@ -122,29 +121,28 @@ export async function PUT(
           ingresoTotal,
           observaciones,
           gastos: {
-            create: gastos.map(gasto => ({
+            create: gastos.map((gasto) => ({
               descripcion: gasto.descripcion,
               monto: gasto.monto,
-              categoriaId: gasto.categoriaId
-            }))
-          }
+              categoriaId: gasto.categoriaId,
+            })),
+          },
         },
         include: {
           gastos: {
             include: {
-              categoria: true
-            }
-          }
-        }
+              categoria: true,
+            },
+          },
+        },
       });
     });
 
     return NextResponse.json({
       success: true,
       message: 'Registro actualizado exitosamente',
-      data: registroActualizado
+      data: registroActualizado,
     });
-
   } catch (error) {
     console.error('Error al actualizar registro:', error);
     return NextResponse.json(
@@ -161,7 +159,7 @@ export async function DELETE(
 ) {
   try {
     const session = await auth();
-    
+
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'No autenticado' },
@@ -169,12 +167,11 @@ export async function DELETE(
       );
     }
 
-    // Verificar que el registro existe y pertenece al usuario
     const registroExistente = await prisma.registroDiario.findFirst({
       where: {
         id: params.id,
-        usuarioId: session.user.id
-      }
+        usuarioId: session.user.id,
+      },
     });
 
     if (!registroExistente) {
@@ -184,16 +181,14 @@ export async function DELETE(
       );
     }
 
-    // Eliminar registro (los gastos se eliminan en cascada)
     await prisma.registroDiario.delete({
-      where: { id: params.id }
+      where: { id: params.id },
     });
 
     return NextResponse.json({
       success: true,
       message: 'Registro eliminado exitosamente',
     });
-
   } catch (error) {
     console.error('Error al eliminar registro:', error);
     return NextResponse.json(

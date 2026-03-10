@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 
 // GET - Obtener gastos de un registro específico
 export async function GET(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    
+    const session = await auth();
+
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: 'No autenticado' },
@@ -29,8 +28,8 @@ export async function GET(request: Request) {
     const registro = await prisma.registroDiario.findFirst({
       where: {
         id: registroId,
-        usuarioId: session.user.id
-      }
+        usuarioId: session.user.id,
+      },
     });
 
     if (!registro) {
@@ -40,21 +39,20 @@ export async function GET(request: Request) {
       );
     }
 
-    const gastos = await prisma.gasto.findMany({
+    const gastos = await prisma.gastoDiario.findMany({
       where: { registroId },
       include: {
-        categoria: true
+        categoria: true,
       },
       orderBy: {
-        createdAt: 'desc'
-      }
+        createdAt: 'desc',
+      },
     });
 
     return NextResponse.json({
       success: true,
-      data: gastos
+      data: gastos,
     });
-
   } catch (error) {
     console.error('Error al obtener gastos:', error);
     return NextResponse.json(
