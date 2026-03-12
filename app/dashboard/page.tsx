@@ -1,16 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Card, StatCard } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
 import { Alert } from '@/components/ui/Alert';
 import { Egg, DollarSign, TrendingUp, TrendingDown } from 'lucide-react';
 import { IndicadoresDiarios, IndicadoresSemanales } from '@/types';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 export default function DashboardPage() {
-  const router = useRouter();
   const [indicadoresHoy, setIndicadoresHoy] = useState<IndicadoresDiarios | null>(null);
   const [indicadoresSemanales, setIndicadoresSemanales] = useState<IndicadoresSemanales | null>(null);
   const [loading, setLoading] = useState(true);
@@ -72,9 +69,6 @@ export default function DashboardPage() {
           <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
           <p className="text-gray-600 mt-1">Resumen de tu operación avícola</p>
         </div>
-        <Button onClick={() => router.push('/dashboard/registros/nuevo')}>
-          + Registrar Día
-        </Button>
       </div>
 
       {/* Error Alert */}
@@ -87,9 +81,6 @@ export default function DashboardPage() {
         <Card>
           <div className="text-center py-8">
             <p className="text-gray-600 mb-4">No hay registro para el día de hoy</p>
-            <Button onClick={() => router.push('/dashboard/registros/nuevo')}>
-              Crear Registro
-            </Button>
           </div>
         </Card>
       ) : (

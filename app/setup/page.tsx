@@ -40,7 +40,11 @@ export default function SetupPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
-      const json = await res.json();
+      
+      const text = await res.text();
+      console.log(text);
+      
+      const json = JSON.parse(text);
 
       if (!json.success) {
         setError(json.error || 'Error al guardar la granja');

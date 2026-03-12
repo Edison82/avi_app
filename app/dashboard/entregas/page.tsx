@@ -1,118 +1,262 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useForm, Resolver } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
+import { useEffect, useCallback, useMemo, useState } from "react";
+import { useForm, useWatch } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+
+/* ---------------- SCHEMA ---------------- */
 
 const entregaSchema = z.object({
-  fecha: z.string().min(1, 'Requerido'),
-  huevosEntregados: z.coerce.number().int().min(1, 'Mínimo 1'),
-  precioVentaUnitario: z.coerce.number().min(0, 'Debe ser positivo'),
+  huevosEntregados: z.coerce.number().int().min(1, "Mínimo 1"),
+  precioVentaUnitario: z.coerce.number().min(0, "Debe ser positivo"),
   clienteNombre: z.string().optional(),
   observaciones: z.string().optional(),
 });
-type EntregaInput = z.infer<typeof entregaSchema>;
+
+type EntregaForm = z.input<typeof entregaSchema>;
+type EntregaData = z.output<typeof entregaSchema>;
+
+interface EntregaResponse {
+  id: string;
+  fecha: string;
+  huevosEntregados: number;
+  precioVentaUnitario: number;
+  ingresoTotal: number;
+  clienteNombre?: string | null;
+}
+
+/* ---------------- COMPONENT ---------------- */
 
 export default function EntregasPage() {
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [exito, setExito] = useState(false);
+  const [entregas, setEntregas] = useState<EntregaResponse[]>([]);
+  const [mensaje, setMensaje] = useState<string | null>(null);
 
-  const { register, handleSubmit, reset, watch, formState: { errors } } = useForm<EntregaInput>({
-    resolver: zodResolver(entregaSchema) as Resolver<EntregaInput>,
-    defaultValues: {
-      fecha: new Date().toISOString().split('T')[0] }
+  const {
+    register,
+    handleSubmit,
+    control,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<EntregaForm>({
+    resolver: zodResolver(entregaSchema),
   });
 
-  const huevos = watch('huevosEntregados') ?? 0;
-  const precio = watch('precioVentaUnitario') ?? 0;
-  const totalEstimado = Number(huevos) * Number(precio);
+  /* ---------------- WATCH OPTIMIZADO ---------------- */
 
-  const onSubmit = async (data: EntregaInput) => {
-    setIsLoading(true);
-    setError(null);
-    setExito(false);
+  const huevos = useWatch({
+    control,
+    name: "huevosEntregados",
+  }) as number;
+  
+  const precio = useWatch({
+    control,
+    name: "precioVentaUnitario",
+  }) as number;
+  
+  const totalEstimado = useMemo(
+    () => (huevos ?? 0) * (precio ?? 0),
+    [huevos, precio]
+  );
+
+  /* ---------------- API ---------------- */
+
+  const cargarEntregas = useCallback(async () => {
+    const res = await fetch("/api/entregas");
+    const json = await res.json();
+    if (json.success) setEntregas(json.data);
+  }, []);
+
+  useEffect(() => {
+    EntregasPage();
+  }, [cargarEntregas]);
+
+  /* ---------------- SUBMIT ---------------- */
+
+  const onSubmit: handleSubmit<EntregaForm> = async (data) => {
     try {
-      const res = await fetch('/api/entregas', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+      await fetch("/api/entregas", {
+        method: "POST",
+        body: JSON.stringify({
+          ...data,
+          fecha: new Date().toISOString(),
+        }),
       });
-      const json = await res.json();
-      if (!json.success) { setError(json.error); return; }
-      setExito(true);
-      reset({ fecha: new Date().toISOString().split('T')[0] });
-    } catch { setError('Error al guardar entrega'); }
-    finally { setIsLoading(false); }
+  
+      reset();
+      cargarEntregas();
+    } catch {
+      setMensaje("❌ Error al guardar");
+    }
   };
 
+  /* ---------------- RECIBO ---------------- */
+
+  const generarRecibo = (entrega: EntregaResponse) => {
+    return `
+RECIBO DE ENTREGA
+-------------------------
+Fecha: ${new Date(entrega.fecha).toLocaleString()}
+Cliente: ${entrega.clienteNombre || "General"}
+Cantidad: ${entrega.huevosEntregados}
+Precio: $${entrega.precioVentaUnitario}
+TOTAL: $${entrega.ingresoTotal}
+`;
+  };
+
+  const enviarWhatsapp = (entrega: EntregaResponse) => {
+    const url = `https://wa.me/?text=${encodeURIComponent(
+      generarRecibo(entrega)
+    )}`;
+    window.open(url, "_blank");
+  };
+
+  /* ---------------- UI ---------------- */
+
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">🚚 Registro de Entrega</h1>
-        <p className="text-gray-500 text-sm mt-1">Registra la entrega de huevos del día</p>
-      </div>
+    <div className="max-w-4xl mx-auto p-4 space-y-8">
 
-      {error && <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
-      {exito && <div className="p-3 bg-green-50 text-green-700 rounded-lg text-sm">✅ Entrega registrada exitosamente</div>}
+      <header>
+        <h1 className="text-2xl font-bold text-gray-900">
+          🚚 Despacho de Mercancía
+        </h1>
+        <p className="text-gray-500">
+          Registra tus entregas en tiempo real
+        </p>
+      </header>
 
-      <div className="bg-white rounded-xl shadow-sm border p-6 space-y-5">
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Fecha</label>
-              <input {...register('fecha')} type="date"
-                max={new Date().toISOString().split('T')[0]}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500" />
-              {errors.fecha && <p className="text-red-500 text-xs mt-1">{errors.fecha.message}</p>}
-            </div>
+      <div className="grid md:grid-cols-2 gap-8">
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Huevos entregados</label>
-              <input {...register('huevosEntregados')} type="number" placeholder="0"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500" />
-              {errors.huevosEntregados && <p className="text-red-500 text-xs mt-1">{errors.huevosEntregados.message}</p>}
-            </div>
-          </div>
+        {/* FORMULARIO */}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Precio por unidad</label>
-              <input {...register('precioVentaUnitario')} type="number" step="0.01" placeholder="0.00"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500" />
-              {errors.precioVentaUnitario && <p className="text-red-500 text-xs mt-1">{errors.precioVentaUnitario.message}</p>}
-            </div>
+        <form
+          onSubmit={handleSubmit(onSubmit)}
+          className="bg-white p-6 rounded-xl shadow-sm border space-y-4"
+        >
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Cliente (opcional)</label>
-              <input {...register('clienteNombre')} placeholder="Nombre del cliente"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500" />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Observaciones</label>
-            <textarea {...register('observaciones')} rows={3} placeholder="Notas adicionales..."
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500" />
-          </div>
-
-          {/* Total estimado */}
-          {totalEstimado > 0 && (
-            <div className="p-4 bg-amber-50 rounded-lg flex justify-between items-center">
-              <span className="text-sm font-medium text-gray-700">Total estimado:</span>
-              <span className="text-lg font-bold text-amber-700">
-                ${totalEstimado.toFixed(2)}
-              </span>
+          {mensaje && (
+            <div className="bg-green-50 text-green-700 p-3 rounded">
+              {mensaje}
             </div>
           )}
 
-          <button type="submit" disabled={isLoading}
-            className="w-full bg-amber-500 hover:bg-amber-600 text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50">
-            {isLoading ? 'Guardando...' : 'Registrar Entrega'}
+          <div>
+            <label className="text-sm font-medium text-gray-900">
+              Cantidad de Huevos
+            </label>
+
+            <input
+              {...register("huevosEntregados")}
+              type="number"
+              className="w-full border p-2 rounded-lg"
+            />
+
+            {errors.huevosEntregados && (
+              <p className="text-red-500 text-xs">
+                {errors.huevosEntregados.message}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-gray-900">
+              Precio Unitario
+            </label>
+
+            <input
+              {...register("precioVentaUnitario")}
+              type="number"
+              step="0.01"
+              className="w-full border p-2 rounded-lg"
+            />
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-gray-900">
+              Cliente
+            </label>
+
+            <input
+              {...register("clienteNombre")}
+              className="w-full border p-2 rounded-lg"
+            />
+          </div>
+
+          <div className="bg-gray-50 p-3 rounded flex justify-between">
+            <span className="text-gray-900 bg-green-300 rounded-md m-px px-px">Subtotal:</span>
+            <span className="font-bold text-blue-600">
+              ${totalEstimado.toLocaleString()}
+            </span>
+          </div>
+
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold"
+          >
+            {isSubmitting ? "Procesando..." : "Confirmar Entrega"}
           </button>
         </form>
+
+        {/* TABLA */}
+
+        <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+
+          <table className="w-full text-sm">
+
+            <thead className="bg-gray-50 border-b">
+              <tr>
+                <th className="px-4 py-3">Hora</th>
+                <th>Cliente</th>
+                <th className="text-right">Cant.</th>
+                <th></th>
+              </tr>
+            </thead>
+
+            <tbody className="divide-y">
+
+              {entregas.map((entrega) => (
+                <tr key={entrega.id}>
+
+                  <td className="px-4 py-3">
+                    {new Date(entrega.fecha).toLocaleTimeString()}
+                  </td>
+
+                  <td>{entrega.clienteNombre || "S.N"}</td>
+
+                  <td className="text-right font-semibold">
+                    {entrega.huevosEntregados}
+                  </td>
+
+                  <td className="space-x-2 text-center">
+
+                    <button
+                      onClick={() => enviarWhatsapp(entrega)}
+                      className="text-green-600"
+                    >
+                      💬
+                    </button>
+
+                    <button
+                      onClick={() => window.print()}
+                      className="text-blue-600"
+                    >
+                      🖨️
+                    </button>
+
+                  </td>
+
+                </tr>
+              ))}
+
+            </tbody>
+
+          </table>
+
+        </div>
+
       </div>
+
     </div>
   );
 }

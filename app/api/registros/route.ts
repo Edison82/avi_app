@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import type { Prisma } from '@prisma/client';
 import { registroDiarioSchema, GastoInput } from '@/lib/validations/schemas';
+import { getGranjaId } from "@/lib/getGranjaId"
 
 // GET - Obtener registros del usuario autenticado
 export async function GET(request: Request) {
@@ -16,7 +17,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const granjaId = session.user.granjaId;
+    const { granjaId, usuarioId, rol } = await getGranjaId()
     if (!granjaId) {
       return NextResponse.json({
         success: true,
@@ -34,8 +35,12 @@ export async function GET(request: Request) {
     // Construir filtros
     const where: Prisma.RegistroDiarioWhereInput = {
       granjaId,
-      usuarioId: session.user.id,
     };
+    
+    // Si NO es admin, forzamos que solo vea sus propios registros
+    if (rol !== "ADMIN") {
+      where.usuarioId = usuarioId;
+    }
 
     if (fechaDesde || fechaHasta) {
       where.fecha = {};
@@ -92,16 +97,7 @@ export async function GET(request: Request) {
 // POST - Crear nuevo registro diario
 export async function POST(request: Request) {
   try {
-    const session = await auth();
-
-    if (!session?.user) {
-      return NextResponse.json(
-        { success: false, error: 'No autenticado' },
-        { status: 401 }
-      );
-    }
-
-    const granjaId = session.user.granjaId;
+    const { granjaId, usuarioId } = await getGranjaId()
     if (!granjaId) {
       return NextResponse.json(
         { success: false, error: 'No tienes una granja configurada' },
@@ -167,7 +163,7 @@ export async function POST(request: Request) {
         ingresoTotal,
         observaciones,
         granjaId,
-        usuarioId: session.user.id,
+        usuarioId: usuarioId,
         gastos: {
           create: (gastos ?? []).map((g: GastoInput) => ({
             descripcion: g.descripcion,

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
+import { getGranjaId } from "@/lib/getGranjaId";
 
 const entregaSchema = z.object({
   fecha: z.string(),
@@ -11,31 +11,12 @@ const entregaSchema = z.object({
   observaciones: z.string().optional(),
 });
 
+// GET - Obtener entregas de la granja
 export async function GET() {
   try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json(
-        { success: false, error: 'No autenticado' },
-        { status: 401 }
-      );
-    }
-
-    // Obtener granjaId desde la relación del usuario
-    const usuario = await prisma.usuario.findUnique({
-      where: { id: session.user.id },
-      include: { granjas: true },
-    });
-
-    const granjaId =
-      session.user.granjaId ?? usuario?.granjas?.[0]?.granjaId ?? null;
-
-    if (!granjaId) {
-      return NextResponse.json(
-        { success: false, error: 'No estás asignado a ninguna granja' },
-        { status: 400 }
-      );
-    }
+    // 1. Obtenemos todo lo necesario del helper
+    // Si no hay sesión o granja, getGranjaId() lanzará un error que caerá en el catch
+    const { granjaId } = await getGranjaId();
 
     const entregas = await prisma.entregaConductor.findMany({
       where: { granjaId },
@@ -48,61 +29,45 @@ export async function GET() {
     });
 
     return NextResponse.json({ success: true, data: entregas });
-  } catch (error) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Error desconocido";
     console.error('Error al obtener entregas:', error);
     return NextResponse.json(
-      { success: false, error: 'Error al obtener entregas' },
-      { status: 500 }
+      { success: false, error: message },
+      { status:  400 }
     );
   }
 }
 
+// POST - Registrar nueva entrega
 export async function POST(request: Request) {
   try {
-    const session = await auth();
-    if (!session?.user || session.user.rol !== 'CONDUCTOR') {
+    // 1. Validar identidad y granja con el helper
+    const { granjaId, usuarioId, rol } = await getGranjaId();
+
+    // 2. Control de acceso por Rol (Opcional: puedes permitir a ADMIN también)
+    if (rol !== 'CONDUCTOR' && rol !== 'ADMIN') {
       return NextResponse.json(
-        { success: false, error: 'Solo conductores pueden registrar entregas' },
+        { success: false, error: 'No tienes permisos para registrar entregas' },
         { status: 403 }
       );
     }
 
-    const usuario = await prisma.usuario.findUnique({
-      where: { id: session.user.id },
-      include: { granjas: true },
-    });
-
-    if (!usuario || usuario.granjas.length === 0) {
-      return NextResponse.json(
-        { success: false, error: 'No estás asignado a ninguna granja' },
-        { status: 400 }
-      );
-    }
-
+    // 3. Validar el cuerpo de la petición
     const body = await request.json();
     const validacion = entregaSchema.safeParse(body);
+    
     if (!validacion.success) {
       return NextResponse.json(
-        {
-          success: false,
-          error: 'Datos inválidos',
-          details: validacion.error.issues,
-        },
+        { success: false, error: 'Datos inválidos', details: validacion.error.issues },
         { status: 400 }
       );
     }
 
-    const {
-      fecha,
-      huevosEntregados,
-      precioVentaUnitario,
-      clienteNombre,
-      observaciones,
-    } = validacion.data;
+    const { fecha, huevosEntregados, precioVentaUnitario, clienteNombre, observaciones } = validacion.data;
     const ingresoTotal = huevosEntregados * precioVentaUnitario;
 
-    const granjaId = usuario.granjas[0].granjaId;
-
+    // 4. Crear registro (Usamos los datos garantizados por getGranjaId)
     const entrega = await prisma.entregaConductor.create({
       data: {
         fecha: new Date(fecha),
@@ -111,20 +76,18 @@ export async function POST(request: Request) {
         ingresoTotal,
         clienteNombre,
         observaciones,
-        granjaId,
-        conductorId: session.user.id,
+        granjaId: granjaId, // Ya es string seguro
+        conductorId: usuarioId,
       },
     });
 
-    return NextResponse.json(
-      { success: true, data: entrega },
-      { status: 201 }
-    );
-  } catch (error) {
+    return NextResponse.json({ success: true, data: entrega }, { status: 201 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Error desconocido";
     console.error('Error al registrar entrega:', error);
     return NextResponse.json(
-      { success: false, error: 'Error al registrar entrega' },
-      { status: 500 }
+      { success: false, error: message },
+      { status: 400 }
     );
   }
 }

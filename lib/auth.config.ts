@@ -94,7 +94,7 @@ export const authConfig: NextAuthConfig = {
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string;
-        session.user.rol = token.rol as string;
+        session.user.rol = token.rol as "ADMIN"|"OPERARIO"|"CONDUCTOR";
         session.user.granjaId = (token.granjaId as string) ?? null;
         session.user.setupCompleto = (token.setupCompleto as boolean) ?? false;
       }

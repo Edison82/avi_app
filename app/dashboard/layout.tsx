@@ -96,8 +96,8 @@ export default function DashboardLayout({
         <div className="p-4 border-b bg-gray-50">
           <p className="text-sm font-medium text-gray-900">{session.user.name}</p>
           <p className="text-xs text-gray-600">{session.user.email}</p>
-          <span className="inline-block mt-2 px-2 py-1 text-xs font-medium bg-primary-100 text-primary-700 rounded">
-            {session.user.rol}
+          <span className="inline-block mt-2 px-2 py-1 text-xs font-medium bg-amber-200 text-gray-700 rounded">
+           Cuenta: @ {session.user.rol}
           </span>
         </div>
 
@@ -115,7 +115,7 @@ export default function DashboardLayout({
                 className={`
                   flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors
                   ${isActive 
-                    ? 'bg-amber-100 text-primary-700 font-medium' 
+                    ? 'bg-amber-300 text-white-700 font-medium' 
                     : 'text-gray-700 hover:bg-gray-100'
                   }
                 `}

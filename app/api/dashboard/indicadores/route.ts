@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { IndicadoresDiarios, IndicadoresSemanales } from '@/types';
+import { getGranjaId } from "@/lib/getGranjaId"
 
 export async function GET(request: Request) {
   try {
@@ -14,7 +15,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const granjaId = session.user.granjaId;
+    const { granjaId} = await getGranjaId()
     if (!granjaId) {
       return NextResponse.json({
         success: true,
