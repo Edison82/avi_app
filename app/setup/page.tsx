@@ -55,6 +55,7 @@ export default function SetupPage() {
       await update({
         setupCompleto: true,
         granjaId: json.data.granjaId,
+        nombreGranja:  data.nombreGranja,
       });
 
       // Pequeño delay para que la sesión se actualice

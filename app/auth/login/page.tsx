@@ -63,7 +63,7 @@ export default function LoginPage() {
         <div className="bg-white rounded-lg shadow-xl p-8">
           {/* Header */}
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-gray-900">🐔 AviControl</h1>
+            <h1 className="text-3xl font-bold text-gray-900">🐔 Avi_App</h1>
             <p className="text-gray-600 mt-2">Sistema de Gestión Avícola</p>
           </div>
 
@@ -94,7 +94,7 @@ export default function LoginPage() {
 
             <Button
               type="submit"
-              className="w-full"
+              className="w-full cursor-pointer"
               isLoading={isLoading}
             >
               Iniciar Sesión
@@ -111,11 +111,11 @@ export default function LoginPage() {
             </p>
           </div>
 
-          {/* Demo Credentials */}
+          {/*Mensaje Acogedor*/}
           <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-            <p className="text-xs text-gray-600 font-medium mb-2">Credenciales de prueba:</p>
-            <p className="text-xs text-gray-500">Admin: admin@avicola.com / admin123</p>
-            <p className="text-xs text-gray-500">Operario: operario@avicola.com / operario123</p>
+            <p className="text-lg text-gray-600 font-medium mb-2">Somos tu App de Gestión 🤗:</p>
+            <p className="text-xs text-gray-500">Optimiza tu producción y maximiza la rentabilidad 💪</p>
+            <p className="text-xs text-gray-500">Ingresa ahora y toma decisiones estratégicas 📈</p>
           </div>
         </div>
       </div>
