@@ -2,90 +2,86 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { registroDiarioSchema } from '@/lib/validations/schemas';
 import { getGranjaId } from '@/lib/getGranjaId';
- 
+
 // ── GET ───────────────────────────────────────────────────────
 export async function GET(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const { granjaId } = await getGranjaId();
+
     if (!granjaId) {
       return NextResponse.json({ success: false, error: 'No autorizado' }, { status: 401 });
     }
- 
+
     const registro = await prisma.registroDiario.findFirst({
-      where: { id: params.id, granjaId },
+      where: { id, granjaId },
       include: {
         gastos:  { include: { categoria: true } },
         usuario: { select: { id: true, nombre: true, email: true, rol: true } },
       },
     });
- 
+
     if (!registro) {
       return NextResponse.json({ success: false, error: 'Registro no encontrado' }, { status: 404 });
     }
- 
+
     return NextResponse.json({ success: true, data: registro });
   } catch (error) {
     console.error('Error al obtener registro:', error);
     return NextResponse.json({ success: false, error: 'Error interno' }, { status: 500 });
   }
 }
- 
+
 // ── PUT ───────────────────────────────────────────────────────
-// Al editar un registro, hay que ajustar el inventario por la diferencia
-// entre los valores anteriores y los nuevos (categoría y/o cantidad).
-//
-// Casos posibles:
-//   A) Misma categoría, misma cantidad   → sin cambio en inventario
-//   B) Misma categoría, distinta cantidad → increment/decrement la diferencia
-//   C) Distinta categoría                → revertir los huevos a la categoría
-//                                          anterior y acumularlos en la nueva
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const { granjaId } = await getGranjaId();
+
     if (!granjaId) {
       return NextResponse.json({ success: false, error: 'No autorizado' }, { status: 401 });
     }
- 
+
     const registroExistente = await prisma.registroDiario.findFirst({
-      where: { id: params.id, granjaId },
+      where: { id, granjaId },
     });
- 
+
     if (!registroExistente) {
       return NextResponse.json({ success: false, error: 'Registro no encontrado' }, { status: 404 });
     }
- 
+
     const body       = await request.json();
     const validacion = registroDiarioSchema.safeParse(body);
- 
+
     if (!validacion.success) {
       return NextResponse.json(
         { success: false, error: 'Datos inválidos', details: validacion.error.issues },
         { status: 400 }
       );
     }
- 
+
     const {
       fecha, huevosProducidos, huevosVendidos, precioVentaUnitario,
       observaciones, mortalidad, categoriaHuevo, gastos,
     } = validacion.data;
- 
-    const ingresoTotal        = huevosVendidos * precioVentaUnitario;
-    const categoriaAnterior   = registroExistente.categoriaHuevo;
-    const cantidadAnterior    = registroExistente.huevosProducidos;
+
+    const ingresoTotal         = huevosVendidos * precioVentaUnitario;
+    const categoriaAnterior    = registroExistente.categoriaHuevo;
+    const cantidadAnterior     = registroExistente.huevosProducidos;
     const diferenciaMortalidad = (mortalidad ?? 0) - registroExistente.mortalidad;
- 
+
     const registroActualizado = await prisma.$transaction(async (tx) => {
-      // ── 1. Actualizar gastos ──
-      await tx.gastoDiario.deleteMany({ where: { registroId: params.id } });
- 
+      // 1. Borrar gastos anteriores y actualizar registro
+      await tx.gastoDiario.deleteMany({ where: { registroId: id } });
+
       const registro = await tx.registroDiario.update({
-        where: { id: params.id },
+        where: { id },
         data: {
           fecha:               new Date(`${fecha}T00:00:00`),
           huevosProducidos,
@@ -108,10 +104,10 @@ export async function PUT(
           usuario: { select: { id: true, nombre: true, email: true, rol: true } },
         },
       });
- 
-      // ── 2. Ajustar inventario por categoría/cantidad ──
+
+      // 2. Ajustar inventario
       if (categoriaHuevo !== categoriaAnterior) {
-        // Caso C: categoría cambió → revertir anterior, acumular en nueva
+        // Categoría cambió → revertir anterior, acumular en nueva
         await tx.inventarioHuevos.upsert({
           where:  { granjaId_categoriaHuevo: { granjaId, categoriaHuevo: categoriaAnterior } },
           update: { cantidadHuevos: { decrement: cantidadAnterior } },
@@ -123,7 +119,7 @@ export async function PUT(
           create: { granjaId, categoriaHuevo, cantidadHuevos: huevosProducidos },
         });
       } else {
-        // Caso A/B: misma categoría, ajustar solo la diferencia
+        // Misma categoría → ajustar diferencia
         const diferencia = huevosProducidos - cantidadAnterior;
         if (diferencia !== 0) {
           await tx.inventarioHuevos.upsert({
@@ -133,50 +129,50 @@ export async function PUT(
           });
         }
       }
- 
-      // ── 3. Ajustar aves activas si cambió la mortalidad ──
+
+      // 3. Ajustar aves si cambió la mortalidad
       if (diferenciaMortalidad !== 0) {
         await tx.granja.update({
           where: { id: granjaId },
           data:  { numeroAves: { decrement: diferenciaMortalidad } },
         });
       }
- 
+
       return registro;
     });
- 
+
     return NextResponse.json({ success: true, data: registroActualizado });
   } catch (error) {
     console.error('Error al actualizar registro:', error);
     return NextResponse.json({ success: false, error: 'Error al actualizar' }, { status: 500 });
   }
 }
- 
+
 // ── DELETE ────────────────────────────────────────────────────
-// Al eliminar un registro, revertimos los huevosProducidos del inventario
-// para que el stock no quede inflado con huevos ya no registrados.
 export async function DELETE(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const { granjaId } = await getGranjaId();
+
     if (!granjaId) {
       return NextResponse.json({ success: false, error: 'No autorizado' }, { status: 401 });
     }
- 
+
     const registro = await prisma.registroDiario.findFirst({
-      where:  { id: params.id, granjaId },
+      where:  { id, granjaId },
       select: { id: true, huevosProducidos: true, categoriaHuevo: true, mortalidad: true },
     });
- 
+
     if (!registro) {
       return NextResponse.json(
         { success: false, error: 'No se encontró el registro o no tienes permiso' },
         { status: 404 }
       );
     }
- 
+
     await prisma.$transaction([
       // Revertir huevos del inventario
       prisma.inventarioHuevos.upsert({
@@ -184,7 +180,7 @@ export async function DELETE(
         update: { cantidadHuevos: { decrement: registro.huevosProducidos } },
         create: { granjaId, categoriaHuevo: registro.categoriaHuevo, cantidadHuevos: 0 },
       }),
-      // Restaurar aves si había mortalidad registrada
+      // Restaurar aves si había mortalidad
       ...(registro.mortalidad > 0
         ? [prisma.granja.update({
             where: { id: granjaId },
@@ -192,10 +188,10 @@ export async function DELETE(
           })]
         : []
       ),
-      // Eliminar el registro (gastos se borran en cascada)
+      // Eliminar registro (gastos se borran en cascada)
       prisma.registroDiario.delete({ where: { id: registro.id } }),
     ]);
- 
+
     return NextResponse.json({ success: true, message: 'Registro eliminado correctamente' });
   } catch (error) {
     console.error('Error al eliminar registro:', error);
