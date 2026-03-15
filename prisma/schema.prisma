@@ -7,61 +7,84 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Rol {
+  ADMIN
+  OPERARIO
+  CONDUCTOR
+}
+
+enum CategoriaHuevo {
+  JUMBO
+  AAA
+  AA
+  A
+  B
+  C
+}
+
+enum TipoMovimiento {
+  ENTRADA
+  SALIDA
+}
+
 model Usuario {
-  id                String               @id @default(uuid())
-  nombre            String
-  email             String               @unique
-  password          String
-  rol               Rol                  @default(ADMIN)
-  activo            Boolean              @default(true)
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
-  configuracion     ConfiguracionGranja?
+  id            String               @id @default(uuid())
+  nombre        String
+  email         String               @unique
+  password      String
+  rol           Rol                  @default(ADMIN)
+  activo        Boolean              @default(true)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  configuracion ConfiguracionGranja?
 
-  // Admin: Granja que administra
-  granja            Granja?              @relation("GranjaAdmin")
+  granja          Granja?   @relation("GranjaAdmin")
+  creadoPorId     String?
+  creadoPor       Usuario?  @relation("UsuariosCreados", fields: [creadoPorId], references: [id])
+  usuariosCreados Usuario[] @relation("UsuariosCreados")
 
-  // Admin que los creó
-  creadoPorId       String?
-  creadoPor         Usuario?             @relation("UsuariosCreados", fields: [creadoPorId], references: [id])
-  usuariosCreados   Usuario[]            @relation("UsuariosCreados")
-
-  registros         RegistroDiario[]
-  entregas          EntregaConductor[]
-  granjas           UsuarioGranja[]
+  registros   RegistroDiario[]
+  entregas    EntregaConductor[]
+  granjas     UsuarioGranja[]
+  cargas      CargaConductor[]
+  movimientos MovimientoInsumo[]
+  permisos    PermisoOperario[]
 
   @@map("usuarios")
 }
 
 model Granja {
-  id           String    @id @default(uuid())
+  id           String   @id @default(uuid())
   nombre       String
-  slug         String    @unique
+  slug         String   @unique
   numeroAves   Int
-  fechaIngreso DateTime  @db.Date
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  fechaIngreso DateTime @db.Date
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  // Admin dueño
-  adminId      String    @unique
-  admin        Usuario   @relation("GranjaAdmin", fields: [adminId], references: [id], onDelete: Cascade)
+  adminId String  @unique
+  admin   Usuario @relation("GranjaAdmin", fields: [adminId], references: [id], onDelete: Cascade)
 
-  registros    RegistroDiario[]
-  entregas     EntregaConductor[]
-  categorias   Categoria[]
-  usuarios     UsuarioGranja[]
+  registros  RegistroDiario[]
+  entregas   EntregaConductor[]
+  categorias Categoria[]
+  usuarios   UsuarioGranja[]
+  inventario InventarioHuevos[]
+  cargas     CargaConductor[]
+  insumos    InsumoInventario[]
+  permisos   PermisoOperario[]
 
   @@map("granjas")
 }
 
 model Categoria {
-  id          String      @id @default(uuid())
+  id          String        @id @default(uuid())
   nombre      String
   descripcion String?
-  activa      Boolean     @default(true)
-  createdAt   DateTime    @default(now())
+  activa      Boolean       @default(true)
+  createdAt   DateTime      @default(now())
   granjaId    String
-  granja      Granja      @relation(fields: [granjaId], references: [id], onDelete: Cascade)
+  granja      Granja        @relation(fields: [granjaId], references: [id], onDelete: Cascade)
   gastos      GastoDiario[]
 
   @@unique([granjaId, nombre])
@@ -81,27 +104,22 @@ model ConfiguracionGranja {
 }
 
 model RegistroDiario {
-  id                  String      @id @default(uuid())
-  fecha               DateTime    @db.Date
+  id                  String         @id @default(uuid())
+  fecha               DateTime       @db.Date
   huevosProducidos    Int
   huevosVendidos      Int
-  precioVentaUnitario Decimal     @db.Decimal(10, 2)
-  ingresoTotal        Decimal     @db.Decimal(10, 2)
+  precioVentaUnitario Decimal        @db.Decimal(10, 2)
+  ingresoTotal        Decimal        @db.Decimal(10, 2)
   observaciones       String?
-
-  // Aves que murieron ese día.
-  // default(0) garantiza compatibilidad con registros anteriores
-  // sin necesidad de migración con datos nulos.
-  // Ejecutar: npx prisma migrate dev --name add_mortalidad_to_registro
-  mortalidad          Int         @default(0)
-
-  createdAt           DateTime    @default(now())
-  updatedAt           DateTime    @updatedAt
+  mortalidad          Int            @default(0)
+  categoriaHuevo      CategoriaHuevo @default(A)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
 
   granjaId  String
-  granja    Granja   @relation(fields: [granjaId], references: [id], onDelete: Cascade)
+  granja    Granja        @relation(fields: [granjaId], references: [id], onDelete: Cascade)
   usuarioId String
-  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  usuario   Usuario       @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   gastos    GastoDiario[]
 
   @@unique([granjaId, fecha])
@@ -126,13 +144,19 @@ model GastoDiario {
 model EntregaConductor {
   id                  String   @id @default(uuid())
   fecha               DateTime @db.Date
-  huevosEntregados    Int
+  huevosEntregados    Int      // total sumado de todas las categorías
   precioVentaUnitario Decimal  @db.Decimal(10, 2)
   ingresoTotal        Decimal  @db.Decimal(10, 2)
   clienteNombre       String?
   observaciones       String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+
+  // Detalle de huevos por categoría — JSON array:
+  // [{ categoria: "AAA", cantidad: 60 }, { categoria: "A", cantidad: 90 }]
+  // @default([]) garantiza compatibilidad con entregas anteriores
+  detalleCategoriasJson Json     @default("[]")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   granjaId    String
   granja      Granja  @relation(fields: [granjaId], references: [id], onDelete: Cascade)
@@ -141,6 +165,91 @@ model EntregaConductor {
 
   @@index([granjaId, fecha])
   @@map("entregas_conductor")
+}
+
+model InventarioHuevos {
+  id             String         @id @default(uuid())
+  categoriaHuevo CategoriaHuevo
+  cantidadHuevos Int            @default(0)
+  updatedAt      DateTime       @updatedAt
+
+  granjaId String
+  granja   Granja @relation(fields: [granjaId], references: [id], onDelete: Cascade)
+
+  @@unique([granjaId, categoriaHuevo])
+  @@map("inventario_huevos")
+}
+
+model CargaConductor {
+  id                 String         @id @default(uuid())
+  fecha              DateTime       @default(now())
+  categoriaHuevo     CategoriaHuevo
+  cubetas            Int
+  huevosEquivalentes Int
+  observaciones      String?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  granjaId    String
+  granja      Granja  @relation(fields: [granjaId], references: [id], onDelete: Cascade)
+  conductorId String
+  conductor   Usuario @relation(fields: [conductorId], references: [id], onDelete: Cascade)
+
+  @@index([granjaId, fecha])
+  @@map("cargas_conductor")
+}
+
+model InsumoInventario {
+  id          String   @id @default(uuid())
+  nombre      String
+  descripcion String?
+  unidad      String   @default("unidad")
+  stockActual Decimal  @default(0) @db.Decimal(10, 2)
+  stockMinimo Decimal  @default(0) @db.Decimal(10, 2)
+  activo      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  granjaId    String
+  granja      Granja             @relation(fields: [granjaId], references: [id], onDelete: Cascade)
+  movimientos MovimientoInsumo[]
+
+  @@unique([granjaId, nombre])
+  @@index([granjaId])
+  @@map("insumos_inventario")
+}
+
+model MovimientoInsumo {
+  id             String         @id @default(uuid())
+  tipo           TipoMovimiento
+  cantidad       Decimal        @db.Decimal(10, 2)
+  precioUnitario Decimal?       @db.Decimal(10, 2)
+  observaciones  String?
+  fecha          DateTime       @default(now())
+  createdAt      DateTime       @default(now())
+
+  insumoId  String
+  insumo    InsumoInventario @relation(fields: [insumoId], references: [id], onDelete: Cascade)
+  usuarioId String
+  usuario   Usuario          @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([insumoId, fecha])
+  @@map("movimientos_insumo")
+}
+
+model PermisoOperario {
+  id        String   @id @default(uuid())
+  activo    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  granjaId  String
+  granja    Granja  @relation(fields: [granjaId], references: [id], onDelete: Cascade)
+  usuarioId String
+  usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@unique([granjaId, usuarioId])
+  @@map("permisos_operario")
 }
 
 model UsuarioGranja {
@@ -153,10 +262,4 @@ model UsuarioGranja {
 
   @@unique([usuarioId, granjaId])
   @@map("usuarios_granjas")
-}
-
-enum Rol {
-  ADMIN
-  OPERARIO
-  CONDUCTOR
 }

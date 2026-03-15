@@ -1,404 +1,719 @@
 'use client';
- 
-import { useState, useEffect } from 'react';
+
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Alert } from '@/components/ui/Alert';
 import { Input } from '@/components/ui/Input';
-import { Eye, Trash2, Search } from 'lucide-react';
+import { Eye, Trash2, Search, ClipboardList, Truck, Package } from 'lucide-react';
 import { RegistroDiarioConRelaciones } from '@/types';
- 
-// ✅ Tipo inline que refleja exactamente el select del API
-// (id, nombre, email, rol del modelo Usuario en schema.prisma)
+
+// ── Tipos ──────────────────────────────────────────────────────
 type UsuarioResumen = {
   id:     string;
   nombre: string;
   email:  string;
-  rol:    'ADMIN' | 'OPERARIO' | 'CONDUCTOR'; // enum Rol del schema
+  rol:    'ADMIN' | 'OPERARIO' | 'CONDUCTOR';
 };
- 
-// Extendemos el tipo existente para incluir el usuario que creó el registro
+
+type CategoriaHuevo = 'JUMBO' | 'AAA' | 'AA' | 'A' | 'B' | 'C';
+
 type RegistroConUsuario = RegistroDiarioConRelaciones & {
-  usuario?: UsuarioResumen | null;
+  usuario?:       UsuarioResumen | null;
+  categoriaHuevo?: CategoriaHuevo;
 };
- 
+
+type DetalleCategoria = { categoria: CategoriaHuevo; cantidad: number };
+
+type EntregaResponse = {
+  id:                    string;
+  fecha:                 string;
+  huevosEntregados:      number;
+  precioVentaUnitario:   number;
+  ingresoTotal:          number;
+  clienteNombre?:        string | null;
+  conductor?:            { id: string; nombre: string; email: string } | null;
+  detalleCategoriasJson?: DetalleCategoria[] | unknown;
+};
+
+function parseDetallesEntrega(raw: unknown): DetalleCategoria[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (d): d is DetalleCategoria =>
+      d && typeof d === 'object' && 'categoria' in d && 'cantidad' in d
+  );
+}
+
+type CargaResponse = {
+  id:                 string;
+  fecha:              string;
+  categoriaHuevo:     CategoriaHuevo;
+  cubetas:            number;
+  huevosEquivalentes: number;
+  observaciones?:     string | null;
+  conductor?:         { id: string; nombre: string; email: string } | null;
+};
+
+type Vista = 'registros' | 'entregas' | 'cargas';
+
+// ── Helpers ────────────────────────────────────────────────────
+const formatCurrency = (v: number) =>
+  new Intl.NumberFormat('es-CO', {
+    style: 'currency', currency: 'COP', minimumFractionDigits: 0,
+  }).format(v);
+
+const formatDate = (s: string) =>
+  new Date(s).toLocaleDateString('es-CO', {
+    year: 'numeric', month: 'long', day: 'numeric',
+  });
+
+const formatDateShort = (s: string) =>
+  new Date(s).toLocaleDateString('es-CO', {
+    day: '2-digit', month: 'short', year: 'numeric',
+  });
+
+const formatTime = (s: string) =>
+  new Date(s).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+
+// ── Badges ─────────────────────────────────────────────────────
+const ROL_BADGE: Record<UsuarioResumen['rol'], { label: string; color: string }> = {
+  ADMIN:     { label: 'Admin',     color: 'bg-purple-100 text-purple-700' },
+  OPERARIO:  { label: 'Operario',  color: 'bg-blue-100   text-blue-700'   },
+  CONDUCTOR: { label: 'Conductor', color: 'bg-orange-100 text-orange-700' },
+};
+
+const CATEGORIA_BADGE: Record<CategoriaHuevo, string> = {
+  JUMBO: 'bg-violet-100 text-violet-700',
+  AAA:   'bg-amber-100  text-amber-700',
+  AA:    'bg-yellow-100 text-yellow-700',
+  A:     'bg-green-100  text-green-700',
+  B:     'bg-blue-100   text-blue-700',
+  C:     'bg-gray-100   text-gray-600',
+};
+
+function CategoriaPill({ cat }: { cat?: CategoriaHuevo }) {
+  if (!cat) return <span className="text-gray-300 text-xs">—</span>;
+  return (
+    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${CATEGORIA_BADGE[cat]}`}>
+      {cat}
+    </span>
+  );
+}
+
+function RolPill({ rol }: { rol: UsuarioResumen['rol'] }) {
+  const { label, color } = ROL_BADGE[rol];
+  return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${color}`}>{label}</span>;
+}
+
+function Spinner() {
+  return (
+    <div className="text-center py-12">
+      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-amber-500 mx-auto" />
+      <p className="mt-3 text-gray-400 text-sm">Cargando...</p>
+    </div>
+  );
+}
+
+function Paginacion({
+  pagina, total, onChange,
+}: {
+  pagina: number; total: number; onChange: (p: number) => void;
+}) {
+  if (total <= 1) return null;
+  return (
+    <div className="flex items-center justify-between mt-6 pt-4 border-t">
+      <Button
+        variant="outline"
+        onClick={() => onChange(Math.max(1, pagina - 1))}
+        disabled={pagina === 1}
+        className="text-gray-700"
+      >
+        Anterior
+      </Button>
+      <span className="text-sm text-gray-500">Página {pagina} de {total}</span>
+      <Button
+        variant="outline"
+        onClick={() => onChange(Math.min(total, pagina + 1))}
+        disabled={pagina === total}
+        className="text-gray-700"
+      >
+        Siguiente
+      </Button>
+    </div>
+  );
+}
+
+// ── Componente principal ───────────────────────────────────────
 export default function RegistrosPage() {
   const router = useRouter();
   const { data: session } = useSession();
-  
-  // ✅ Detecta si el usuario logueado es ADMIN para mostrar columnas extra
   const isAdmin = session?.user?.rol === 'ADMIN';
- 
-  const [registros, setRegistros]         = useState<RegistroConUsuario[]>([]);
-  const [loading, setLoading]             = useState(true);
-  const [error, setError]                 = useState<string | null>(null);
-  const [success, setSuccess]             = useState<string | null>(null);
-  const [fechaDesde, setFechaDesde]       = useState('');
-  const [fechaHasta, setFechaHasta]       = useState('');
-  const [pagina, setPagina]               = useState(1);
-  const [totalPaginas, setTotalPaginas]   = useState(1);
- 
+
+  const [vista,   setVista]   = useState<Vista>('registros');
+  const [error,   setError]   = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  // ── Registros ──
+  const [registros,   setRegistros]   = useState<RegistroConUsuario[]>([]);
+  const [loadingReg,  setLoadingReg]  = useState(true);
+  const [paginaReg,   setPaginaReg]   = useState(1);
+  const [totalPagReg, setTotalPagReg] = useState(1);
+  const [fechaDesde,  setFechaDesde]  = useState('');
+  const [fechaHasta,  setFechaHasta]  = useState('');
+
+  // ── Entregas ──
+  const [entregas,    setEntregas]    = useState<EntregaResponse[]>([]);
+  const [loadingEnt,  setLoadingEnt]  = useState(false);
+  const [paginaEnt,   setPaginaEnt]   = useState(1);
+  const [totalPagEnt, setTotalPagEnt] = useState(1);
+
+  // ── Cargas ──
+  const [cargas,      setCargas]      = useState<CargaResponse[]>([]);
+  const [loadingCar,  setLoadingCar]  = useState(false);
+  const [paginaCar,   setPaginaCar]   = useState(1);
+  const [totalPagCar, setTotalPagCar] = useState(1);
+
+  // ── Fetch registros ──────────────────────────────────────────
   useEffect(() => {
-    const fetchRegistros = async () => {
-      setLoading(true);
+    if (vista !== 'registros') return;
+    const run = async () => {
+      setLoadingReg(true);
       try {
-        const params = new URLSearchParams({
-          pagina: pagina.toString(),
-          limite: '10',
-        });
-        if (fechaDesde) params.append('fechaDesde', fechaDesde);
-        if (fechaHasta) params.append('fechaHasta', fechaHasta);
- 
-        const response = await fetch(`/api/registros?${params}`);
-        const data = await response.json();
- 
+        const p = new URLSearchParams({ pagina: paginaReg.toString(), limite: '10' });
+        if (fechaDesde) p.append('fechaDesde', fechaDesde);
+        if (fechaHasta) p.append('fechaHasta', fechaHasta);
+        const res  = await fetch(`/api/registros?${p}`);
+        const data = await res.json();
         if (data.success) {
           setRegistros(data.data);
-          setTotalPaginas(data.pagination.totalPaginas);
+          setTotalPagReg(data.pagination.totalPaginas);
         } else {
           setError(data.error);
         }
-      } catch (err) {
+      } catch {
         setError('Error al cargar registros');
-        console.error('Error al cargar registros:', err);
       } finally {
-        setLoading(false);
+        setLoadingReg(false);
       }
     };
- 
-    fetchRegistros();
-  }, [pagina, fechaDesde, fechaHasta]);
- 
-  const handleBuscarRegistros = () => setPagina(1);
- 
-  const handleDelete = async (id: string, fecha: string) => {
-    if (!confirm(`¿Estás seguro de eliminar el registro del ${fecha}?`)) return;
- 
-    try {
-      const response = await fetch(`/api/registros/${id}`, { method: 'DELETE' });
-      const data = await response.json();
- 
-      if (data.success) {
-        setSuccess('Registro eliminado exitosamente');
-        // Actualización optimista: elimina del estado local sin re-fetch
-        setRegistros((prev) => prev.filter((r) => r.id !== id));
-        // Si era el último de la página, retrocede una página
-        if (registros.length === 1 && pagina > 1) {
-          setPagina((p) => p - 1);
+    run();
+  }, [vista, paginaReg, fechaDesde, fechaHasta]);
+
+  // ── Fetch entregas ───────────────────────────────────────────
+  useEffect(() => {
+    if (vista !== 'entregas') return;
+    const run = async () => {
+      setLoadingEnt(true);
+      try {
+        const res  = await fetch(`/api/entregas?pagina=${paginaEnt}&limite=10`);
+        const data = await res.json();
+        if (data.success) {
+          setEntregas(data.data);
+          setTotalPagEnt(data.pagination.totalPaginas);
+        } else {
+          setError(data.error);
         }
-        setTimeout(() => setSuccess(null), 3000);
-      } else {
-        setError(data.error ?? 'No se pudo eliminar el registro');
+      } catch {
+        setError('Error al cargar entregas');
+      } finally {
+        setLoadingEnt(false);
       }
-    } catch (err) {
-      setError('Error al eliminar registro');
-      console.error('Error al eliminar registro:', err);
-    }
-  };
- 
-  const handleLimpiarFiltros = () => {
-    setFechaDesde('');
-    setFechaHasta('');
-    setPagina(1);
-  };
- 
-  const formatCurrency = (value: number) =>
-    new Intl.NumberFormat('es-CO', {
-      style: 'currency',
-      currency: 'COP',
-      minimumFractionDigits: 0,
-    }).format(value);
- 
-  const formatDate = (dateString: string) =>
-    new Date(dateString).toLocaleDateString('es-CO', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
- 
-  // Badge de color por cada valor del enum Rol
-  const getRolBadge = (rol: UsuarioResumen['rol']) => {
-    const estilos: Record<UsuarioResumen['rol'], { label: string; color: string }> = {
-      ADMIN:     { label: 'Admin',     color: 'bg-purple-100 text-purple-700' },
-      OPERARIO:  { label: 'Operario',  color: 'bg-blue-100   text-blue-700'   },
-      CONDUCTOR: { label: 'Conductor', color: 'bg-orange-100 text-orange-700' },
     };
-    const { label, color } = estilos[rol];
-    return (
-      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${color}`}>
-        {label}
-      </span>
-    );
-  };
- 
-  const calcularTotalGastos = (registro: RegistroConUsuario) =>
-    registro.gastos.reduce((sum, gasto) => sum + Number(gasto.monto), 0);
- 
+    run();
+  }, [vista, paginaEnt]);
+
+  // ── Fetch cargas ─────────────────────────────────────────────
+  useEffect(() => {
+    if (vista !== 'cargas') return;
+    const run = async () => {
+      setLoadingCar(true);
+      try {
+        const res  = await fetch(`/api/cargas?pagina=${paginaCar}&limite=10`);
+        const data = await res.json();
+        if (data.success) {
+          setCargas(data.data);
+          setTotalPagCar(data.pagination.totalPaginas);
+        } else {
+          setError(data.error);
+        }
+      } catch {
+        setError('Error al cargar cargas');
+      } finally {
+        setLoadingCar(false);
+      }
+    };
+    run();
+  }, [vista, paginaCar]);
+
+  // ── Eliminar registro ────────────────────────────────────────
+  const handleDelete = useCallback(async (id: string, fecha: string) => {
+    if (!confirm(`¿Eliminar registro del ${fecha}?\nLos huevos producidos serán revertidos del inventario.`)) return;
+    try {
+      const res  = await fetch(`/api/registros/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        setSuccess('Registro eliminado e inventario revertido');
+        setRegistros((prev) => prev.filter((r) => r.id !== id));
+        if (registros.length === 1 && paginaReg > 1) setPaginaReg((p) => p - 1);
+        setTimeout(() => setSuccess(null), 3500);
+      } else {
+        setError(data.error ?? 'No se pudo eliminar');
+      }
+    } catch {
+      setError('Error al eliminar registro');
+    }
+  }, [registros.length, paginaReg]);
+
+  const calcGastos = (r: RegistroConUsuario) =>
+    r.gastos.reduce((s, g) => s + Number(g.monto), 0);
+
+  // ── Render ────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
- 
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Historial de Registros</h1>
-          <p className="text-gray-600 mt-1">Consulta y gestiona tus registros diarios</p>
+          <h1 className="text-3xl font-bold text-gray-900">Historial</h1>
+          <p className="text-gray-500 mt-1 text-sm">Registros, entregas y cargas de la granja</p>
         </div>
-        <Button onClick={() => router.push('/dashboard/registros/nuevo')}>
-          + Nuevo Registro
-        </Button>
+        {vista === 'registros' && (
+          <Button onClick={() => router.push('/dashboard/registros/nuevo')}>
+            + Nuevo Registro
+          </Button>
+        )}
       </div>
- 
-      {/* Alerts */}
+
       {success && <Alert type="success" message={success} onClose={() => setSuccess(null)} />}
       {error   && <Alert type="error"   message={error}   onClose={() => setError(null)}   />}
- 
-      {/* Filtros */}
-      <Card title="Filtros de Búsqueda">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Input
-            label="Fecha Desde"
-            type="date"
-            value={fechaDesde}
-            onChange={(e) => setFechaDesde(e.target.value)}
-          />
-          <Input
-            label="Fecha Hasta"
-            type="date"
-            value={fechaHasta}
-            onChange={(e) => setFechaHasta(e.target.value)}
-          />
-          <div className="flex items-end space-x-2">
-            <Button onClick={handleBuscarRegistros} className="flex-1">
-              <Search size={16} className="mr-2" />
-              Buscar
-            </Button>
-            <Button variant="outline" onClick={handleLimpiarFiltros}>
-              Limpiar
-            </Button>
-          </div>
+
+      {/* Toggle de vistas (solo ADMIN) */}
+      {isAdmin && (
+        <div className="flex gap-1 p-1 bg-gray-100 rounded-xl w-fit">
+          {([
+            { id: 'registros', icon: ClipboardList, label: 'Registros del Operario' },
+            { id: 'entregas',  icon: Truck,         label: 'Entregas del Conductor' },
+            { id: 'cargas',    icon: Package,       label: 'Registros de Cargas'    },
+          ] as const).map(({ id, icon: Icon, label }) => (
+            <button
+              key={id}
+              onClick={() => setVista(id)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150
+                ${vista === id
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+                }`}
+            >
+              <Icon size={15} />
+              {label}
+            </button>
+          ))}
         </div>
-      </Card>
- 
-      {/* Tabla */}
-      <Card>
-        {loading ? (
-          <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto" />
-            <p className="mt-4 text-gray-600">Cargando registros...</p>
-          </div>
-        ) : registros.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-gray-600 mb-4">No hay registros para mostrar</p>
-            <Button onClick={() => router.push('/dashboard/registros/nuevo')}>
-              Crear Primer Registro
-            </Button>
-          </div>
-        ) : (
-          <>
-            {/* ── Vista Desktop ── */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Fecha
-                    </th>
- 
-                    {/* Columnas exclusivas del ADMIN */}
-                    {isAdmin && (
-                      <>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                          Usuario
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                          Tipo
-                        </th>
-                      </>
-                    )}
- 
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Producidos</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Vendidos</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Ingresos</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Gastos</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Ganancia</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {registros.map((registro) => {
-                    const totalGastos = calcularTotalGastos(registro);
-                    const ganancia    = Number(registro.ingresoTotal) - totalGastos;
- 
-                    return (
-                      <tr key={registro.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-sm text-gray-900">
-                          {formatDate(registro.fecha.toString())}
-                        </td>
- 
-                        {/* Celdas exclusivas del ADMIN */}
-                        {isAdmin && (
-                          <>
-                            <td className="px-4 py-3 text-sm text-gray-900">
-                              {/* nombre del modelo Usuario (campo: nombre String) */}
-                              {registro.usuario?.nombre ?? '—'}
-                            </td>
-                            <td className="px-4 py-3">
-                              {registro.usuario?.rol
-                                ? getRolBadge(registro.usuario.rol)
-                                : <span className="text-gray-400">—</span>
-                              }
-                            </td>
-                          </>
-                        )}
- 
-                        <td className="px-4 py-3 text-sm text-right text-gray-900">
-                          {registro.huevosProducidos}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-900">
-                          {registro.huevosVendidos}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right text-green-600 font-medium">
-                          {formatCurrency(Number(registro.ingresoTotal))}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right text-red-600 font-medium">
-                          {formatCurrency(totalGastos)}
-                        </td>
-                        <td className={`px-4 py-3 text-sm text-right font-bold ${
-                          ganancia >= 0 ? 'text-green-600' : 'text-red-600'
-                        }`}>
-                          {formatCurrency(ganancia)}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <div className="flex justify-center space-x-2">
-                            <button
-                              onClick={() => router.push(`/dashboard/registros/${registro.id}`)}
-                              className="p-2 text-blue-600 hover:bg-blue-50 rounded"
-                              title="Ver detalle"
-                            >
-                              <Eye size={18} />
-                            </button>
-                            <button
-                              onClick={() => handleDelete(
-                                registro.id,
-                                formatDate(registro.fecha.toString())
-                              )}
-                              className="p-2 text-red-600 hover:bg-red-50 rounded"
-                              title="Eliminar"
-                            >
-                              <Trash2 size={18} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
- 
-            {/* ── Vista Mobile ── */}
-            <div className="md:hidden space-y-4">
-              {registros.map((registro) => {
-                const totalGastos = calcularTotalGastos(registro);
-                const ganancia    = Number(registro.ingresoTotal) - totalGastos;
- 
-                return (
-                  <div key={registro.id} className="border rounded-lg p-4 space-y-3">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="font-semibold text-gray-900">
-                          {formatDate(registro.fecha.toString())}
-                        </p>
-                        <p className="text-sm text-gray-600">
-                          {registro.huevosProducidos} producidos / {registro.huevosVendidos} vendidos
-                        </p>
- 
-                        {/* Info de usuario solo visible para ADMIN en mobile */}
-                        {isAdmin && registro.usuario && (
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-xs text-gray-500">
-                              {registro.usuario.nombre}
-                            </span>
-                            {getRolBadge(registro.usuario.rol)}
-                          </div>
-                        )}
-                      </div>
- 
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => router.push(`/dashboard/registros/${registro.id}`)}
-                          className="p-2 text-blue-600 hover:bg-blue-50 rounded"
-                          title="Ver detalle"
-                        >
-                          <Eye size={18} />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(
-                            registro.id,
-                            formatDate(registro.fecha.toString())
-                          )}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded"
-                          title="Eliminar"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </div>
-                    </div>
- 
-                    <div className="grid grid-cols-3 gap-2 text-sm">
-                      <div>
-                        <p className="text-gray-600">Ingresos</p>
-                        <p className="font-medium text-green-600">
-                          {formatCurrency(Number(registro.ingresoTotal))}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-gray-600">Gastos</p>
-                        <p className="font-medium text-red-600">
-                          {formatCurrency(totalGastos)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-gray-600">Ganancia</p>
-                        <p className={`font-bold ${ganancia >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {formatCurrency(ganancia)}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
- 
-            {/* Paginación */}
-            {totalPaginas > 1 && (
-              <div className="flex items-center justify-between mt-6 pt-4 border-t">
-                <Button
-                  variant="outline"
-                  onClick={() => setPagina((p) => Math.max(1, p - 1))}
-                  disabled={pagina === 1}
-                  className='text-gray-800 hover:bg-gray-400 cursor-pointer'
-                >
-                  Anterior
+      )}
+
+      {/* ═══════════════════════════════════
+          REGISTROS DEL OPERARIO
+      ═══════════════════════════════════ */}
+      {vista === 'registros' && (
+        <>
+          <Card title="Filtros de Búsqueda">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Input
+                label="Fecha Desde"
+                type="date"
+                value={fechaDesde}
+                onChange={(e) => setFechaDesde(e.target.value)}
+              />
+              <Input
+                label="Fecha Hasta"
+                type="date"
+                value={fechaHasta}
+                onChange={(e) => setFechaHasta(e.target.value)}
+              />
+              <div className="flex items-end gap-2">
+                <Button onClick={() => setPaginaReg(1)} className="flex-1">
+                  <Search size={15} className="mr-1.5" />
+                  Buscar
                 </Button>
-                <span className="text-sm text-gray-600">
-                  Página {pagina} de {totalPaginas}
-                </span>
                 <Button
                   variant="outline"
-                  onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
-                  disabled={pagina === totalPaginas}
-                  className='text-gray-800 hover:bg-gray-400 cursor-pointer'
+                  onClick={() => { setFechaDesde(''); setFechaHasta(''); setPaginaReg(1); }}
                 >
-                  Siguiente
+                  Limpiar
                 </Button>
               </div>
+            </div>
+          </Card>
+
+          <Card>
+            {loadingReg ? (
+              <Spinner />
+            ) : registros.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-gray-500 mb-4">No hay registros para mostrar</p>
+                <Button onClick={() => router.push('/dashboard/registros/nuevo')}>
+                  Crear Primer Registro
+                </Button>
+              </div>
+            ) : (
+              <>
+                {/* Desktop */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50 border-b">
+                      <tr>
+                        <th className="px-4 py-3 text-left   text-xs font-medium text-gray-500 uppercase">Fecha</th>
+                        {isAdmin && (
+                          <>
+                            <th className="px-4 py-3 text-left   text-xs font-medium text-gray-500 uppercase">Usuario</th>
+                            <th className="px-4 py-3 text-left   text-xs font-medium text-gray-500 uppercase">Rol</th>
+                          </>
+                        )}
+                        <th className="px-4 py-3 text-center  text-xs font-medium text-gray-500 uppercase">Categoría</th>
+                        <th className="px-4 py-3 text-right   text-xs font-medium text-gray-500 uppercase">Producidos</th>
+                        <th className="px-4 py-3 text-right   text-xs font-medium text-gray-500 uppercase">Vendidos</th>
+                        <th className="px-4 py-3 text-right   text-xs font-medium text-gray-500 uppercase">Ingresos</th>
+                        <th className="px-4 py-3 text-right   text-xs font-medium text-gray-500 uppercase">Gastos</th>
+                        <th className="px-4 py-3 text-right   text-xs font-medium text-gray-500 uppercase">Ganancia</th>
+                        <th className="px-4 py-3 text-center  text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {registros.map((r) => {
+                        const gastos  = calcGastos(r);
+                        const ganancia = Number(r.ingresoTotal) - gastos;
+                        return (
+                          <tr key={r.id} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap">
+                              {formatDate(r.fecha.toString())}
+                            </td>
+                            {isAdmin && (
+                              <>
+                                <td className="px-4 py-3 text-sm text-gray-900">
+                                  {r.usuario?.nombre ?? '—'}
+                                </td>
+                                <td className="px-4 py-3">
+                                  {r.usuario?.rol
+                                    ? <RolPill rol={r.usuario.rol} />
+                                    : <span className="text-gray-300 text-xs">—</span>
+                                  }
+                                </td>
+                              </>
+                            )}
+                            <td className="px-4 py-3 text-center">
+                              <CategoriaPill cat={r.categoriaHuevo} />
+                            </td>
+                            <td className="px-4 py-3 text-sm text-right text-gray-800">
+                              {r.huevosProducidos}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-right text-gray-800">
+                              {r.huevosVendidos}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-right font-medium text-green-600">
+                              {formatCurrency(Number(r.ingresoTotal))}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-right font-medium text-red-600">
+                              {formatCurrency(gastos)}
+                            </td>
+                            <td className={`px-4 py-3 text-sm text-right font-bold
+                              ${ganancia >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {formatCurrency(ganancia)}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <div className="flex justify-center gap-1">
+                                <button
+                                  onClick={() => router.push(`/dashboard/registros/${r.id}`)}
+                                  className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"
+                                  title="Ver detalle"
+                                >
+                                  <Eye size={15} />
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(r.id, formatDate(r.fecha.toString()))}
+                                  className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                                  title="Eliminar"
+                                >
+                                  <Trash2 size={15} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile */}
+                <div className="md:hidden space-y-3">
+                  {registros.map((r) => {
+                    const gastos   = calcGastos(r);
+                    const ganancia = Number(r.ingresoTotal) - gastos;
+                    return (
+                      <div key={r.id} className="border rounded-xl p-4 space-y-3">
+                        <div className="flex justify-between items-start">
+                          <div className="space-y-1">
+                            <p className="font-semibold text-sm text-gray-900">
+                              {formatDate(r.fecha.toString())}
+                            </p>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <CategoriaPill cat={r.categoriaHuevo} />
+                              {isAdmin && r.usuario && <RolPill rol={r.usuario.rol} />}
+                            </div>
+                            {isAdmin && r.usuario && (
+                              <p className="text-xs text-gray-500">{r.usuario.nombre}</p>
+                            )}
+                            <p className="text-xs text-gray-500">
+                              {r.huevosProducidos} producidos · {r.huevosVendidos} vendidos
+                            </p>
+                          </div>
+                          <div className="flex gap-1 ml-2">
+                            <button
+                              onClick={() => router.push(`/dashboard/registros/${r.id}`)}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"
+                            >
+                              <Eye size={15} />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(r.id, formatDate(r.fecha.toString()))}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 text-xs">
+                          <div>
+                            <p className="text-gray-500">Ingresos</p>
+                            <p className="font-semibold text-green-600">
+                              {formatCurrency(Number(r.ingresoTotal))}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-gray-500">Gastos</p>
+                            <p className="font-semibold text-red-600">{formatCurrency(gastos)}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-500">Ganancia</p>
+                            <p className={`font-bold ${ganancia >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {formatCurrency(ganancia)}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <Paginacion pagina={paginaReg} total={totalPagReg} onChange={setPaginaReg} />
+              </>
             )}
-          </>
-        )}
-      </Card>
+          </Card>
+        </>
+      )}
+
+      {/* ═══════════════════════════════════
+          ENTREGAS DEL CONDUCTOR
+      ═══════════════════════════════════ */}
+      {vista === 'entregas' && isAdmin && (
+        <Card>
+          {loadingEnt ? (
+            <Spinner />
+          ) : entregas.length === 0 ? (
+            <div className="text-center py-12">
+              <Truck size={40} className="mx-auto text-gray-300 mb-3" />
+              <p className="text-gray-500">No hay entregas registradas</p>
+            </div>
+          ) : (
+            <>
+              {/* Desktop */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-4 py-3 text-left  text-xs font-medium text-gray-500 uppercase">Fecha</th>
+                      <th className="px-4 py-3 text-left  text-xs font-medium text-gray-500 uppercase">Conductor</th>
+                      <th className="px-4 py-3 text-left  text-xs font-medium text-gray-500 uppercase">Cliente</th>
+                      <th className="px-4 py-3 text-left  text-xs font-medium text-gray-500 uppercase">Categorías</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total huevos</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Precio</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {entregas.map((e) => {
+                      const detalles = parseDetallesEntrega(e.detalleCategoriasJson);
+                      return (
+                      <tr key={e.id} className="hover:bg-gray-50 align-top">
+                        <td className="px-4 py-3 text-sm">
+                          <p className="text-gray-900">{formatDateShort(e.fecha)}</p>
+                          <p className="text-xs text-gray-400">{formatTime(e.fecha)}</p>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-900">
+                          {e.conductor?.nombre ?? '—'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-700">
+                          {e.clienteNombre || (
+                            <span className="text-gray-400 italic">Sin nombre</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {detalles.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {detalles.map((d) => (
+                                <span key={d.categoria}
+                                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${CATEGORIA_BADGE[d.categoria]}`}>
+                                  {d.categoria} ×{d.cantidad}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-500">{e.huevosEntregados} huevos</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">
+                          {e.huevosEntregados}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-right text-gray-600">
+                          {formatCurrency(e.precioVentaUnitario)}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-right font-bold text-green-600">
+                          {formatCurrency(e.ingresoTotal)}
+                        </td>
+                      </tr>
+                    )})}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="md:hidden space-y-3">
+                {entregas.map((e) => {
+                  const detalles = parseDetallesEntrega(e.detalleCategoriasJson);
+                  return (
+                  <div key={e.id} className="border rounded-xl p-4 space-y-2">
+                    <div className="flex justify-between">
+                      <div>
+                        <p className="font-semibold text-sm text-gray-900">
+                          {formatDateShort(e.fecha)}
+                        </p>
+                        <p className="text-xs text-gray-400">{e.conductor?.nombre ?? '—'}</p>
+                      </div>
+                      <p className="font-bold text-green-600 text-sm">
+                        {formatCurrency(e.ingresoTotal)}
+                      </p>
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-500">
+                      <span>{e.clienteNombre || 'Sin nombre'}</span>
+                      <span>{e.huevosEntregados} huevos</span>
+                    </div>
+                    {detalles.length > 0 && (
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        {detalles.map((d) => (
+                          <span key={d.categoria}
+                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${CATEGORIA_BADGE[d.categoria]}`}>
+                            {d.categoria} ×{d.cantidad}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )})}
+              </div>
+              <Paginacion pagina={paginaEnt} total={totalPagEnt} onChange={setPaginaEnt} />
+            </>
+          )}
+        </Card>
+      )}
+
+      {/* ═══════════════════════════════════
+          REGISTROS DE CARGAS
+      ═══════════════════════════════════ */}
+      {vista === 'cargas' && isAdmin && (
+        <Card>
+          {loadingCar ? (
+            <Spinner />
+          ) : cargas.length === 0 ? (
+            <div className="text-center py-12">
+              <Package size={40} className="mx-auto text-gray-300 mb-3" />
+              <p className="text-gray-500">No hay cargas registradas</p>
+            </div>
+          ) : (
+            <>
+              {/* Desktop */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-4 py-3 text-left   text-xs font-medium text-gray-500 uppercase">Fecha y Hora</th>
+                      <th className="px-4 py-3 text-left   text-xs font-medium text-gray-500 uppercase">Conductor</th>
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Categoría</th>
+                      <th className="px-4 py-3 text-right  text-xs font-medium text-gray-500 uppercase">Cubetas</th>
+                      <th className="px-4 py-3 text-right  text-xs font-medium text-gray-500 uppercase">Huevos</th>
+                      <th className="px-4 py-3 text-left   text-xs font-medium text-gray-500 uppercase">Observaciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {cargas.map((c) => (
+                      <tr key={c.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 text-sm">
+                          <p className="text-gray-900">{formatDateShort(c.fecha)}</p>
+                          <p className="text-xs text-gray-400">{formatTime(c.fecha)}</p>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-900">
+                          {c.conductor?.nombre ?? '—'}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <CategoriaPill cat={c.categoriaHuevo} />
+                        </td>
+                        <td className="px-4 py-3 text-sm text-right font-bold text-gray-900">
+                          {c.cubetas}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-right text-gray-600">
+                          {c.huevosEquivalentes.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-500 max-w-xs truncate">
+                          {c.observaciones || (
+                            <span className="text-gray-300 italic">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile */}
+              <div className="md:hidden space-y-3">
+                {cargas.map((c) => (
+                  <div key={c.id} className="border rounded-xl p-4 space-y-2">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="font-semibold text-sm text-gray-900">
+                          {formatDateShort(c.fecha)}
+                        </p>
+                        <p className="text-xs text-gray-400">{c.conductor?.nombre ?? '—'}</p>
+                      </div>
+                      <CategoriaPill cat={c.categoriaHuevo} />
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-600">
+                      <span>{c.cubetas} cubetas</span>
+                      <span>{c.huevosEquivalentes} huevos</span>
+                    </div>
+                    {c.observaciones && (
+                      <p className="text-xs text-gray-400">{c.observaciones}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <Paginacion pagina={paginaCar} total={totalPagCar} onChange={setPaginaCar} />
+            </>
+          )}
+        </Card>
+      )}
+
     </div>
   );
 }

@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
-// Mantenemos tu lógica de validación de fecha porque es más robusta
+// ── Enum compartido ───────────────────────────────────────────
+export const categoriaHuevoEnum = z.enum(['JUMBO', 'AAA', 'AA', 'A', 'B', 'C']);
+
+// lógicas de validación de fecha 
 const fechaNoFutura = (date: string) => {
   const selected = new Date(`${date}T00:00:00`);
   const today = new Date();
@@ -32,18 +35,18 @@ export const categoriaSchema = z.object({
   descripcion: z.string().optional(),
 });
 
+// ── Gasto individual ──────────────────────────────────────────
 export const gastoSchema = z.object({
-  descripcion: z.string().min(3, 'La descripción debe tener al menos 3 caracteres'),
-  // Usamos z.coerce.number() que es más limpio que el helper manual
-  monto: z.coerce.number().nonnegative('El monto debe ser mayor o igual a 0'),
-  categoriaId: z.string().min(1, 'Selecciona una Categoria'),
+  descripcion: z.string().min(1, 'La descripción es requerida'),
+  monto:       z.coerce.number().min(0, 'El monto debe ser positivo'),
+  categoriaId: z.string().uuid('ID de categoría inválido'),
 });
+
 
 // ── Registro Diario (CON MORTALIDAD) ──────────────────────────
 export const registroDiarioSchema = z
   .object({
     fecha: z.string().refine(fechaNoFutura, 'La fecha no puede ser futura'),
-    
     // Coerce maneja la conversión de string (del input) a number automáticamente
     huevosProducidos: z.coerce
       .number()
@@ -59,7 +62,6 @@ export const registroDiarioSchema = z
       .number()
       .min(0, 'El precio debe ser mayor o igual a 0'),
       
-    // ✅ NUEVO CAMPO: Mortalidad
     mortalidad: z.coerce
       .number()
       .int('Debe ser un número entero')
@@ -67,6 +69,7 @@ export const registroDiarioSchema = z
       .default(0),
 
     observaciones: z.string().optional(),
+    categoriaHuevo: categoriaHuevoEnum.default('A'),
     gastos: z.array(gastoSchema).default([]),
   })
   .refine((data) => data.huevosVendidos <= data.huevosProducidos, {
@@ -95,3 +98,4 @@ export type CategoriaInput = z.infer<typeof categoriaSchema>;
 export type GastoInput = z.infer<typeof gastoSchema>;
 export type RegistroDiarioInput = z.infer<typeof registroDiarioSchema>;
 export type GranjaInput = z.infer<typeof granjaSchema>;
+export type CategoriaHuevoEnum = z.infer<typeof categoriaHuevoEnum>;

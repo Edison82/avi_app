@@ -103,6 +103,7 @@ export async function POST(request: Request) {
       precioVentaUnitario,
       observaciones,
       mortalidad,
+      categoriaHuevo,
       gastos,
     } = validacion.data;
  
@@ -132,6 +133,7 @@ export async function POST(request: Request) {
           ingresoTotal,
           observaciones,
           mortalidad: mortalidad ?? 0,
+          categoriaHuevo, 
           granjaId,
           usuarioId,
           gastos: {
@@ -157,6 +159,13 @@ export async function POST(request: Request) {
           data: { numeroAves: { decrement: mortalidad } },
         });
       }
+
+      // 3. Acumular huevosProducidos en el inventario de la categoría seleccionada
+      await tx.inventarioHuevos.upsert({
+        where:  { granjaId_categoriaHuevo: { granjaId, categoriaHuevo } },
+        update: { cantidadHuevos: { increment: huevosProducidos } },
+        create: { granjaId, categoriaHuevo, cantidadHuevos: huevosProducidos },
+      });
  
       return registro;
     });
