@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Card, StatCard } from '@/components/ui/Card';
+import { Card} from '@/components/ui/Card';
 import { Alert } from '@/components/ui/Alert';
 import {
   Egg, DollarSign, TrendingUp, TrendingDown, Bird, Skull,
@@ -53,7 +53,7 @@ interface DashboardData {
   comparacion: { label: string; metricas: Metricas } | null;
 }
 
-type Periodo = 'hoy' | 'semana' | 'mes' | 'trimestre' | 'semestre' | 'año';
+type Periodo = 'hoy' | 'semana' | 'mes' | 'trimestre' | 'semestre' | 'anio';
 
 // ── Constantes ─────────────────────────────────────────────────
 const PERIODOS: { id: Periodo; label: string }[] = [
@@ -62,7 +62,7 @@ const PERIODOS: { id: Periodo; label: string }[] = [
   { id: 'mes',       label: 'Mes'        },
   { id: 'trimestre', label: 'Trimestre'  },
   { id: 'semestre',  label: 'Semestre'   },
-  { id: 'año',       label: 'Año'        },
+  { id: 'anio',       label: 'Año'        },
 ];
 
 // ── Helpers ─────────────────────────────────────────────────────

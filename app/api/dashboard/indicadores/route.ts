@@ -67,7 +67,7 @@ function formatFechaGrafico(fecha: Date, periodo: string): string {
   if (periodo === 'mes')      return fecha.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' });
   if (periodo === 'trimestre')return fecha.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' });
   if (periodo === 'semestre') return fecha.toLocaleDateString('es-CO', { month: 'short', year: '2-digit' });
-  if (periodo === 'año')      return fecha.toLocaleDateString('es-CO', { month: 'short', year: '2-digit' });
+  if (periodo === 'anio')      return fecha.toLocaleDateString('es-CO', { month: 'short', year: '2-digit' });
   return fecha.toLocaleDateString('es-CO');
 }
 
