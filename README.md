@@ -1,232 +1,349 @@
+# AviControl — Sistema de Gestión Avícola
 
+Sistema web multi-tenant para la gestión integral de granjas avícolas productoras de huevos. Permite registrar y analizar producción diaria, controlar gastos por categorías, gestionar entregas, cargas y movimientos de inventario, con cálculo automático de indicadores de rentabilidad.
 
-# 🐔 AviControl - Sistema de Gestión Avícola
+---
 
-Sistema web para la gestión diaria de empresas avícolas dedicadas a la producción de huevos. Permite registrar gastos, producción, ventas y calcular automáticamente la rentabilidad del negocio.
+## Tabla de contenidos
 
-## 📋 Características
+- [Características](#características)
+- [Stack tecnológico](#stack-tecnológico)
+- [Arquitectura](#arquitectura)
+- [Requisitos previos](#requisitos-previos)
+- [Instalación y configuración](#instalación-y-configuración)
+- [Variables de entorno](#variables-de-entorno)
+- [Comandos disponibles](#comandos-disponibles)
+- [Estructura del proyecto](#estructura-del-proyecto)
+- [API Endpoints](#api-endpoints)
+- [Roles y permisos](#roles-y-permisos)
+- [Modelo de datos](#modelo-de-datos)
 
-- ✅ **Dashboard en tiempo real** con indicadores diarios y semanales
-- ✅ **Registro de producción diaria** de huevos
-- ✅ **Control de gastos** por categorías personalizables
-- ✅ **Cálculo automático** de ingresos y ganancias
-- ✅ **Gráficos y visualizaciones** de tendencias
-- ✅ **Histórico completo** con filtros y búsqueda
-- ✅ **Sistema de roles** (Admin/Operario)
-- ✅ **Responsive design** para móviles y tablets
+---
 
-## 🛠️ Stack Tecnológico
+## Características
 
-- **Frontend:** Next.js 14, React 18, TypeScript
-- **Estilos:** Tailwind CSS
-- **Backend:** Next.js API Routes
-- **Base de Datos:** PostgreSQL
-- **ORM:** Prisma
-- **Autenticación:** NextAuth.js
-- **Validaciones:** Zod + React Hook Form
-- **Gráficos:** Recharts
+- Dashboard con indicadores diarios y semanales en tiempo real
+- Registro de producción diaria (turno mañana / tarde) por categoría de huevo
+- Control de gastos por categorías personalizables con campos dinámicos
+- Gestión de entregas a conductores con desglose por categoría (JUMBO, AAA, AA, A, B, C)
+- Control de cargas asignadas a conductores
+- Inventario de huevos por categoría con trazabilidad
+- Inventario de insumos con movimientos de entrada/salida
+- Precios de huevo configurables por categoría
+- Gestión de usuarios con tres roles diferenciados
+- Onboarding guiado para creación de granja
+- Diseño responsive para móvil, tablet y escritorio
 
-## 📦 Instalación
+---
 
-### Prerrequisitos
+## Stack tecnológico
 
-- Node.js 18+
-- PostgreSQL 14+ (local o en la nube)
-- npm o yarn
+| Capa | Tecnología |
+|---|---|
+| Framework | Next.js 16 (App Router) |
+| UI | React 19 + TypeScript |
+| Estilos | Tailwind CSS v4 + PostCSS |
+| Autenticación | NextAuth.js v5 (beta) — JWT + Credentials provider |
+| ORM | Prisma 6 |
+| Base de datos | PostgreSQL (NeonDB en producción) |
+| Validación | Zod v4 + React Hook Form v7 |
+| Gráficos | Recharts v3 |
+| Iconos | Lucide React |
+| Cifrado | bcryptjs |
+| Despliegue | Render |
 
-### Pasos
+---
 
-1. **Clonar el repositorio**
+## Arquitectura
 
-bash
+### Multi-tenancy
 
-`git clone <url-del-repo>
-cd avicola-app`
+Cada `Granja` es un tenant independiente. Todos los datos (registros, gastos, entregas, inventario, categorías) están aislados por `granjaId`. El `ADMIN` crea y administra la granja; los demás roles son asignados explícitamente.
 
-1. **Instalar dependencias**
+### Flujo de autenticación
 
-bash
+`lib/auth.config.ts` define el proveedor Credentials y los callbacks JWT que añaden `granjaId`, `rol` e `id` al token de sesión. `lib/auth.ts` exporta `{ auth, signIn, signOut, handlers }`.
 
-`npm install`
+El middleware (`middleware.ts`) redirige a `/setup` si el usuario autenticado aún no tiene una granja asociada.
 
-1. **Configurar variables de entorno**
+### Seguridad en rutas API
 
-Crear archivo `.env.local` en la raíz:
+Todas las rutas API usan `lib/getGranjaId.ts` como límite de seguridad central. Esta función valida la sesión y devuelve `{ granjaId, usuarioId, rol }`, garantizando que cada consulta esté aislada al tenant correspondiente.
 
-env
+```ts
+const { granjaId, usuarioId, rol } = await getGranjaId();
+```
 
-`DATABASE_URL="postgresql://usuario:password@localhost:5432/avicola_db"
-NEXTAUTH_URL="http://localhost:3000"
-NEXTAUTH_SECRET="tu-secret-generado"`
+---
 
-Generar NEXTAUTH_SECRET:
+## Requisitos previos
 
-bash
+- Node.js 20+
+- PostgreSQL 15+ (local o instancia en la nube)
+- npm 10+
 
-`openssl rand -base64 32`
+---
 
-1. **Levantar base de datos (con Docker)**
+## Instalación y configuración
 
-bash
+**1. Clonar el repositorio**
 
-`docker-compose up -d`
+```bash
+git clone <url-del-repositorio>
+cd avi_app
+```
 
-O configurar PostgreSQL manualmente.
+**2. Instalar dependencias**
 
-1. **Ejecutar migraciones**
+```bash
+npm install
+```
 
-bash
+**3. Configurar variables de entorno**
 
-`npx prisma migrate dev`
+Crear el archivo `.env` en la raíz del proyecto (ver sección [Variables de entorno](#variables-de-entorno)).
 
-1. **Ejecutar seed (datos iniciales)**
+**4. Aplicar el esquema a la base de datos**
 
-bash
-
-`npm run db:seed`
-
-Esto creará:
-
-- 6 categorías predeterminadas
-- Usuario admin: `admin@avicola.com` / `admin123`
-- Usuario operario: `operario@avicola.com` / `operario123`
-- 7 días de registros de ejemplo
-1. **Iniciar el servidor de desarrollo**
-
-bash
-
-`npm run dev`
-
-Abrir [http://localhost:3000](http://localhost:3000/)
-
-## 🗄️ Comandos de Base de Datos
-
-bash
-
-`*# Ver base de datos visualmente*
-npm run db:studio
-
-*# Crear nueva migración*
-npx prisma migrate dev --name nombre_migracion
-
-*# Resetear base de datos (¡CUIDADO!)*
-npm run db:reset
-
-*# Sincronizar schema sin migraciones*
+```bash
 npm run db:push
+```
 
-*# Regenerar cliente Prisma*
-npx prisma generate`
+O ejecutar migraciones formales en entornos con historial:
 
-## 📂 Estructura del Proyecto
+```bash
+npm run db:migrate
+```
 
-`avicola-app/
+**5. Poblar con datos iniciales (opcional)**
+
+```bash
+npm run db:seed
+```
+
+**6. Iniciar el servidor de desarrollo**
+
+```bash
+npm run dev
+```
+
+La aplicación estará disponible en `http://localhost:3000`.
+
+---
+
+## Variables de entorno
+
+Crear un archivo `.env` en la raíz. **Nunca incluir este archivo en el control de versiones.**
+
+```env
+# Conexión principal (con pooling — usada por Prisma en runtime)
+DATABASE_URL="postgresql://<usuario>:<password>@<host>/<base_de_datos>?sslmode=require"
+
+# Conexión directa (sin pooling — usada por migraciones y Prisma Studio)
+DIRECT_URL="postgresql://<usuario>:<password>@<host>/<base_de_datos>?sslmode=require"
+
+# URL base de la aplicación
+NEXTAUTH_URL="http://localhost:3000"
+
+# Secreto para firmar tokens JWT (mínimo 32 caracteres aleatorios)
+# Generar con: openssl rand -base64 32
+AUTH_SECRET="<secreto-generado>"
+```
+
+> En producción, configurar estas variables directamente en el panel del proveedor de despliegue. `NEXTAUTH_URL` no es necesaria si el proveedor establece `NEXTAUTH_URL_INTERNAL` automáticamente.
+
+---
+
+## Comandos disponibles
+
+```bash
+# Desarrollo
+npm run dev          # Inicia el servidor en localhost:3000
+
+# Producción
+npm run build        # Genera cliente Prisma + compila la aplicación
+npm run start        # Inicia el servidor en modo producción
+
+# Calidad de código
+npm run lint         # Ejecuta ESLint
+
+# Base de datos
+npm run db:push      # Sincroniza el schema sin crear migraciones (solo desarrollo)
+npm run db:migrate   # Crea y aplica migraciones
+npm run db:seed      # Inserta datos iniciales
+npm run db:studio    # Abre Prisma Studio en el navegador
+```
+
+---
+
+## Estructura del proyecto
+
+```
+avi_app/
 ├── app/
-│   ├── (auth)/
-│   │   ├── login/page.tsx
-│   │   └── registro/page.tsx
-│   ├── (dashboard)/
-│   │   ├── dashboard/
-│   │   │   ├── page.tsx
-│   │   │   ├── registros/
-│   │   │   ├── categorias/
-│   │   │   └── configuracion/
-│   │   └── layout.tsx
 │   ├── api/
-│   │   ├── auth/
-│   │   ├── registros/
-│   │   ├── gastos/
+│   │   ├── auth/               # Registro y handlers de NextAuth
+│   │   ├── campos/             # Campos dinámicos de categorías
+│   │   ├── cargas/             # Cargas asignadas a conductores
+│   │   ├── categorias/         # Categorías de gastos + campos
+│   │   ├── configuracion/      # Configuración de granja y usuarios
+│   │   ├── dashboard/          # Indicadores diarios y semanales
+│   │   ├── entregas/           # Entregas de huevos
+│   │   ├── gastos/             # Gastos diarios
+│   │   ├── granjas/            # Información de la granja
+│   │   ├── inventario/         # Inventario de insumos y movimientos
+│   │   ├── precios-huevo/      # Precios por categoría de huevo
+│   │   ├── registros/          # Registros diarios de producción
+│   │   └── setup/              # Onboarding — creación de granja
+│   ├── auth/
+│   │   ├── login/
+│   │   └── registro/
+│   ├── dashboard/
 │   │   ├── categorias/
-│   │   ├── dashboard/
-│   │   └── configuracion/
+│   │   ├── carga/
+│   │   ├── configuracion/
+│   │   ├── entregas/
+│   │   ├── inventario/
+│   │   ├── registros/
+│   │   │   ├── [id]/editar/
+│   │   │   └── nuevo/
+│   │   ├── layout.tsx
+│   │   └── page.tsx
+│   ├── setup/
 │   ├── globals.css
 │   └── layout.tsx
 ├── components/
-│   ├── ui/
-│   │   ├── Button.tsx
-│   │   ├── Input.tsx
-│   │   ├── Card.tsx
-│   │   └── Alert.tsx
-│   └── Providers.tsx
+│   └── ui/
+│       ├── Alert.tsx
+│       ├── Button.tsx
+│       ├── Card.tsx
+│       └── Input.tsx
 ├── lib/
-│   ├── auth.ts
-│   ├── prisma.ts
+│   ├── auth.config.ts          # Configuración NextAuth (proveedor, callbacks JWT)
+│   ├── auth.ts                 # Exporta auth, signIn, signOut, handlers
+│   ├── format.ts               # Utilidades de formateo y constantes de categorías
+│   ├── getGranjaId.ts          # Límite de seguridad para rutas API
+│   ├── prisma.ts               # Instancia singleton de PrismaClient
 │   └── validations/
+│       └── schemas.ts          # Esquemas Zod centralizados
 ├── prisma/
 │   ├── schema.prisma
-│   ├── seed.ts
-│   └── migrations/
-├── types/
-│   └── index.ts
-└── middleware.ts`
+│   └── seed.ts
+├── scripts/
+├── middleware.ts
+└── prisma.config.ts
+```
 
-## 🔐 Usuarios de Prueba
+---
 
-Después de ejecutar el seed:
+## API Endpoints
 
-**Administrador:**
-
-- Email: `admin@avicola.com`
-- Password: `admin123`
-- Permisos: Todos
-
-**Operario:**
-
-- Email: `operario@avicola.com`
-- Password: `operario123`
-- Permisos: Registros y consultas
-
-## 📊 API Endpoints
+Todas las rutas devuelven `{ success: true, data, message }` o `{ success: false, error }`.
 
 ### Autenticación
 
-- `POST /api/auth/register` - Registrar usuario
-- `POST /api/auth/[...nextauth]` - Login
+| Método | Ruta | Descripción |
+|---|---|---|
+| POST | `/api/auth/register` | Registro de nuevo usuario |
+| POST | `/api/auth/[...nextauth]` | Login / logout (NextAuth) |
 
-### Registros Diarios
+### Registros diarios
 
-- `GET /api/registros` - Listar registros
-- `POST /api/registros` - Crear registro
-- `GET /api/registros/[id]` - Obtener registro
-- `PUT /api/registros/[id]` - Actualizar registro
-- `DELETE /api/registros/[id]` - Eliminar registro
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/registros` | Listar registros con paginación y filtros |
+| POST | `/api/registros` | Crear registro de producción |
+| GET | `/api/registros/[id]` | Obtener registro por ID |
+| PUT | `/api/registros/[id]` | Actualizar registro |
+| DELETE | `/api/registros/[id]` | Eliminar registro |
 
-### Categorías
+### Categorías de gastos
 
-- `GET /api/categorias` - Listar categorías
-- `POST /api/categorias` - Crear categoría (ADMIN)
-- `PUT /api/categorias/[id]` - Actualizar (ADMIN)
-- `PATCH /api/categorias/[id]` - Activar/desactivar (ADMIN)
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/categorias` | Listar categorías |
+| POST | `/api/categorias` | Crear categoría *(ADMIN)* |
+| PUT | `/api/categorias/[id]` | Actualizar categoría *(ADMIN)* |
+| PATCH | `/api/categorias/[id]` | Activar/desactivar *(ADMIN)* |
+| GET | `/api/categorias/[id]/campos` | Campos dinámicos de una categoría |
+| POST | `/api/categorias/[id]/campos` | Añadir campo dinámico |
+| PUT | `/api/campos/[id]` | Actualizar campo |
+| DELETE | `/api/campos/[id]` | Eliminar campo |
 
 ### Dashboard
 
-- `GET /api/dashboard/indicadores?tipo=hoy` - Indicadores del día
-- `GET /api/dashboard/indicadores?tipo=semanal` - Indicadores semanales
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/dashboard/indicadores?tipo=hoy` | Indicadores del día |
+| GET | `/api/dashboard/indicadores?tipo=semanal` | Indicadores de los últimos 7 días |
+
+### Entregas y cargas
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/entregas` | Listar entregas |
+| POST | `/api/entregas` | Registrar entrega |
+| GET | `/api/cargas` | Listar cargas |
+| POST | `/api/cargas` | Registrar carga |
+| PUT | `/api/cargas/[id]` | Actualizar carga |
+| DELETE | `/api/cargas/[id]` | Eliminar carga |
+
+### Inventario de insumos
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/inventario` | Resumen de inventario |
+| GET | `/api/inventario/insumos` | Listar insumos |
+| POST | `/api/inventario/insumos` | Crear insumo |
+| PUT | `/api/inventario/insumos/[id]` | Actualizar insumo |
+| POST | `/api/inventario/historial` | Registrar movimiento |
+| GET | `/api/inventario/permisos` | Permisos de operario sobre inventario |
 
 ### Configuración
 
-- `GET /api/configuracion` - Obtener configuración
-- `POST /api/configuracion` - Crear configuración
-- `PUT /api/configuracion` - Actualizar configuración
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET/PUT | `/api/configuracion` | Configuración de la granja |
+| GET | `/api/configuracion/usuarios` | Listar usuarios de la granja *(ADMIN)* |
+| PUT | `/api/configuracion/usuarios/[id]` | Actualizar usuario *(ADMIN)* |
+| PATCH | `/api/configuracion/usuarios/[id]/estado` | Activar/desactivar usuario *(ADMIN)* |
+| GET/POST | `/api/precios-huevo` | Precios por categoría de huevo |
 
+---
 
-## 📝 Licencia
+## Roles y permisos
 
-Este proyecto es de código abierto
+| Rol | Descripción |
+|---|---|
+| `ADMIN` | Acceso completo. Administra usuarios, categorías, configuración y precios. |
+| `OPERARIO` | Gestiona registros diarios, cargas y entregas. Acceso de lectura al inventario según permisos. |
+| `CONDUCTOR` | Acceso restringido a entregas asignadas (`EntregaConductor`). |
 
-## 👥 Autor
+---
 
-Edison Arley Liberato Mendoza
+## Modelo de datos
 
-## 🐛 Reporte de Bugs
+Los modelos principales del esquema Prisma son:
 
-Si encuentras un bug, por favor abre un issue con:
+| Modelo | Descripción |
+|---|---|
+| `Granja` | Tenant principal. Agrupa toda la información de una granja. |
+| `Usuario` | Usuario de la aplicación. Pertenece a una granja con un rol asignado. |
+| `RegistroDiario` | Producción diaria de huevos (turno mañana/tarde). |
+| `GastoDiario` | Gasto asociado a un registro y una categoría. |
+| `Categoria` | Categoría de gasto personalizable con campos dinámicos. |
+| `CampoCategoria` | Campo dinámico de una categoría (número, texto, etc.). |
+| `EntregaConductor` | Entrega de huevos con desglose por categoría en JSON. |
+| `CargaConductor` | Carga asignada a un conductor. |
+| `InventarioHuevos` | Stock de huevos por categoría (JUMBO, AAA, AA, A, B, C). |
+| `InsumoInventario` | Insumo con stock actual y mínimo. |
+| `MovimientoInsumo` | Entrada o salida de un insumo. |
+| `PrecioHuevoCategoria` | Precio de venta configurado por categoría de huevo. |
+| `ConfiguracionGranja` | Configuración general de la granja (nombre, número de gallinas). |
+| `PermisoOperario` | Permiso de un operario sobre un módulo específico. |
 
-- Descripción del problema
-- Pasos para reproducirlo
-- Comportamiento esperado
-- Screenshots (si aplica)
+---
 
-## 📧 Contacto
+## Licencia
 
-ediflow82@gmail.com
+Este proyecto es de uso académico. Todos los derechos reservados al autor.
